@@ -431,7 +431,7 @@
 <div id="upload-screen">
   <div class="upload-zone" id="drop-zone">
     <h1>Living Image</h1>
-    <p>Upload an architectural render to generate<br>12 time-of-day lighting variants</p>
+    <p>Upload an architectural render to generate</p>
 
     <div class="upload-config">
       <div class="browse-cta" id="browse-btn">
@@ -457,11 +457,11 @@
   <!-- Progress Overlay -->
   <div id="progress-overlay">
     <div class="progress-content">
-      <div class="progress-title">Generating variants...</div>
+      <div class="progress-title">Generating Living Image.</div>
       <div class="progress-bar-track">
         <div class="progress-bar-fill" id="progress-fill"></div>
       </div>
-      <div class="progress-status" id="progress-status">Preparing 12 time-of-day variants</div>
+      <div class="progress-status" id="progress-status">Preparing your living image</div>
     </div>
   </div>
 
@@ -480,17 +480,17 @@
       </div>
 
       <div class="slider-track">
-        <input type="range" id="time-slider" min="0" max="1000" value="455">
+        <input type="range" id="time-slider" min="0" max="1000" value="500">
       </div>
 
       <div class="time-markers">
-        <span class="time-marker">7 AM</span>
-        <span class="time-marker">9</span>
-        <span class="time-marker">11</span>
-        <span class="time-marker">1 PM</span>
-        <span class="time-marker">3</span>
-        <span class="time-marker">5</span>
-        <span class="time-marker">7 PM</span>
+        <span class="time-marker">8 AM</span>
+        <span class="time-marker">10</span>
+        <span class="time-marker">12</span>
+        <span class="time-marker">2 PM</span>
+        <span class="time-marker">4</span>
+        <span class="time-marker">6</span>
+        <span class="time-marker">8 PM</span>
       </div>
 
       <div class="controls-footer">
@@ -522,7 +522,7 @@ function escapeHtml(s) {
 // ─── State ───
 const state = {
   imageFile: null,
-  variants: [],    // array of 12 {hour, label, image_url, img_element, index}
+  variants: [],    // array of time slots {hour, label, image_url, img_element, index}
   jobId: null,
   generating: false,
 };
@@ -626,7 +626,7 @@ async function generateVariants(file) {
     }
 
     $progressFill.style.width = '95%';
-    $progressStatus.textContent = `Generated ${data.success}/${data.total} variants. Loading...`;
+    $progressStatus.textContent = `Generated ${data.success}/${data.total} frames. Loading...`;
 
     if (totalValid === 0) {
       const firstError = data.variants.find(v => v.error);
@@ -654,10 +654,21 @@ function finishGeneration() {
   }, 600);
 }
 
-// ─── Slider and crossfade logic ───
+// ─── Slider and crossfade (unchanged). Snap to nearest hour on release only. ───
 function sliderToTime(value) {
-  // Slider 0-1000 maps to 7.0-18.0 (hours)
-  return 7 + (value / 1000) * 11;
+  return 8 + (value / 1000) * 12;
+}
+
+function timeToSliderValue(hour) {
+  if (hour <= 8) return 0;
+  if (hour >= 20) return 1000;
+  return Math.round(((hour - 8) / 12) * 1000);
+}
+
+function getSnappedHour() {
+  const val = parseInt($timeSlider.value);
+  const hourFloat = sliderToTime(val);
+  return Math.max(8, Math.min(20, Math.round(hourFloat)));
 }
 
 function formatTime(hourFloat) {
@@ -677,14 +688,11 @@ function updateSlider() {
   $timeDisplay.textContent = fmt.time;
   $timePeriod.textContent = fmt.period;
 
-  // Find the two adjacent keyframes to blend
   const validVariants = state.variants.filter(v => v.status === 'success' && v.img_element);
   if (validVariants.length === 0) return;
 
-  // Find lower and upper keyframe
   let lower = validVariants[0];
   let upper = validVariants[validVariants.length - 1];
-
   for (let i = 0; i < validVariants.length - 1; i++) {
     if (validVariants[i].hour <= hourFloat && validVariants[i + 1].hour > hourFloat) {
       lower = validVariants[i];
@@ -692,24 +700,19 @@ function updateSlider() {
       break;
     }
   }
-
-  // If past the last keyframe, just show the last one
   if (hourFloat >= validVariants[validVariants.length - 1].hour) {
     lower = validVariants[validVariants.length - 1];
     upper = lower;
   }
 
-  // Compute blend ratio
   let blend = 0;
   if (lower !== upper) {
     blend = (hourFloat - lower.hour) / (upper.hour - lower.hour);
     blend = Math.max(0, Math.min(1, blend));
   }
 
-  // Apply opacity to all images
   for (const v of validVariants) {
     if (!v.img_element) continue;
-
     if (v === lower && v === upper) {
       v.img_element.style.opacity = 1;
     } else if (v === lower) {
@@ -722,20 +725,21 @@ function updateSlider() {
   }
 }
 
-$timeSlider.addEventListener('input', updateSlider);
+function snapSliderToNearestHour() {
+  const snappedHour = getSnappedHour();
+  $timeSlider.value = timeToSliderValue(snappedHour);
+  updateSlider();
+}
 
-// ─── Current frame for upscale/download (nearest keyframe to slider) ───
+$timeSlider.addEventListener('input', updateSlider);
+$timeSlider.addEventListener('change', snapSliderToNearestHour);
+
+// ─── Current frame for download: nearest hour (snapped position) ───
 function getCurrentFrameVariant() {
   const validVariants = state.variants.filter(v => v.status === 'success' && v.image_url);
   if (validVariants.length === 0) return null;
-  const val = parseInt($timeSlider.value);
-  const hourFloat = sliderToTime(val);
-  let best = validVariants[0];
-  for (const v of validVariants) {
-    if (v.hour <= hourFloat) best = v;
-    else break;
-  }
-  return best;
+  const snappedHour = getSnappedHour();
+  return validVariants.find(v => v.hour === snappedHour) || validVariants[0];
 }
 
 function getFilenameFromImageUrl(url) {

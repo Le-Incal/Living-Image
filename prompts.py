@@ -1,12 +1,17 @@
 """
 Prompt template system for Living Image crossfade test harness.
 
-Generates 12 time-specific prompts (7am-6pm) that instruct image generation
+Generates time-specific prompts (8am-8pm) that instruct image generation
 APIs to relight an architectural image while preserving structural fidelity.
+Sun position (elevation and azimuth) progresses evenly across the day.
 """
 
 from dataclasses import dataclass
 import math
+
+# Time window: 8am (8) to 8pm (20) inclusive = 13 one-hour slots
+FIRST_HOUR = 8
+LAST_HOUR = 20
 
 
 PROMPT_TEMPLATE = """Relight this architectural image to accurately depict how it would look at {time_label} on a clear day.
@@ -14,6 +19,7 @@ PROMPT_TEMPLATE = """Relight this architectural image to accurately depict how i
 LIGHTING CONDITIONS at {time_label}:
 - {lighting_description}
 - Sun elevation: approximately {sun_elevation} degrees above the horizon
+- Sun azimuth: approximately {sun_azimuth} degrees (0=north, 90=east, 180=south, 270=west) — light and shadows align with this direction
 - Light color temperature: {color_temp_description} ({color_temp_k}K)
 - Shadows: {shadow_description}
 - Sky: {sky_description}
@@ -40,10 +46,11 @@ Preserve the EXACT architectural composition. This is a professional architectur
 
 @dataclass
 class TimeSlot:
-    """Represents one hour in the 7am-6pm range with lighting metadata."""
-    hour: int               # 24h format: 7-18
-    label: str              # "7:00 AM", "12:00 PM", etc.
+    """Represents one hour in the 8am-8pm range with lighting metadata."""
+    hour: int               # 24h format: 8-20
+    label: str              # "8:00 AM", "12:00 PM", "8:00 PM", etc.
     sun_elevation: float    # degrees above horizon
+    sun_azimuth: float      # degrees from north (90=E, 180=S, 270=W)
     color_temp_k: int       # Kelvin
     shadow_description: str
     sky_description: str
@@ -64,15 +71,14 @@ def _format_hour_label(hour: int) -> str:
 
 def _compute_sun_elevation(hour: int) -> float:
     """
-    Approximate sun elevation for a mid-latitude location (~40N)
-    on an equinox-like day. Peaks at solar noon (~12:30).
-
-    Uses a sinusoidal model: elevation = max_el * sin(pi * (h - sunrise) / day_length)
+    Sun elevation for ~40N, long summer day. Sunrise before 8am, sunset after 8pm.
+    Elevation progresses smoothly (sine) so sun moves evenly across the sky.
+    Solar noon ~13:30.
     """
-    sunrise = 6.5   # approximate sunrise
-    sunset = 18.5   # approximate sunset
+    sunrise = 6.0
+    sunset = 20.5
     day_length = sunset - sunrise
-    max_elevation = 55.0  # degrees at solar noon for ~40N equinox
+    max_elevation = 58.0  # ~40N summer
 
     if hour <= sunrise or hour >= sunset:
         return 0.0
@@ -82,27 +88,36 @@ def _compute_sun_elevation(hour: int) -> float:
     return round(elevation, 1)
 
 
+def _compute_sun_azimuth(hour: int) -> float:
+    """
+    Sun azimuth in degrees from north. Progresses evenly: 8am ~90 (E), noon ~180 (S), 8pm ~270 (W).
+    Linear in hour across the 8am-8pm window for consistent motion across the image.
+    """
+    # Map hour 8 -> 90°, hour 20 -> 270° (linear)
+    t = (hour - FIRST_HOUR) / (LAST_HOUR - FIRST_HOUR)  # 0 at 8am, 1 at 8pm
+    azimuth = 90 + t * 180  # 90 (E) to 270 (W)
+    return round(azimuth, 0)
+
+
 def _compute_color_temp(hour: int) -> int:
     """
-    Color temperature in Kelvin across the day.
-    Dawn/dusk: ~2500K (warm amber)
-    Golden hour: ~3500K (warm gold)
-    Midday: ~5500-6500K (neutral daylight)
+    Color temperature in Kelvin across the day (8am-8pm).
+    Warm at 8am/8pm, cool at midday.
     """
-    # Map hour to color temp using a curve that's warm at extremes, cool at noon
     temps = {
-        7:  2800,
-        8:  3200,
-        9:  4000,
-        10: 4800,
-        11: 5500,
-        12: 6000,
+        8:  3000,
+        9:  3800,
+        10: 4500,
+        11: 5300,
+        12: 5900,
         13: 6200,
-        14: 5800,
-        15: 5200,
-        16: 4500,
-        17: 3500,
-        18: 2700,
+        14: 6000,
+        15: 5500,
+        16: 4800,
+        17: 4000,
+        18: 3300,
+        19: 2900,
+        20: 2600,
     }
     return temps.get(hour, 5500)
 
@@ -123,74 +138,73 @@ def _color_temp_description(kelvin: int) -> str:
         return "cool bright daylight"
 
 
-def _shadow_description(hour: int, sun_elevation: float) -> str:
-    """Describe shadow characteristics based on time and sun position."""
-    if hour <= 8:
-        return "Very long shadows stretching to the west. Soft, diffuse shadow edges from low-angle light."
-    elif hour <= 10:
-        return "Long shadows angled to the west-northwest. Moderately soft shadow edges."
-    elif hour <= 11:
-        return "Medium-length shadows angled slightly west. Increasingly defined shadow edges."
-    elif hour <= 13:
-        return "Short shadows nearly directly below objects. Sharp, well-defined shadow edges from overhead sun."
-    elif hour <= 14:
-        return "Medium-length shadows angled slightly east. Well-defined shadow edges."
-    elif hour <= 16:
-        return "Long shadows stretching to the east-northeast. Moderately soft shadow edges."
-    else:
-        return "Very long shadows stretching to the east. Soft, warm-tinted shadow edges from low-angle light."
+def _shadow_description(hour: int, sun_elevation: float, sun_azimuth: float) -> str:
+    """Describe shadow direction and length from sun position (even progression 8am-8pm)."""
+    if sun_elevation <= 5:
+        return "Very long shadows in the direction opposite the sun. Soft, diffuse shadow edges from low-angle light."
+    if sun_elevation <= 15:
+        return "Long shadows opposite the sun azimuth. Moderately soft shadow edges."
+    if sun_elevation <= 35:
+        return "Medium-length shadows opposite the sun. Clearly defined shadow edges."
+    if sun_elevation <= 55:
+        return "Short shadows nearly directly opposite the sun. Sharp, well-defined shadow edges from high sun."
+    return "Short shadows directly opposite the sun. Sharp shadow edges from overhead sun."
 
 
 def _sky_description(hour: int) -> str:
-    """Describe sky appearance at given hour."""
+    """Describe sky appearance at given hour (8am-8pm)."""
     descs = {
-        7:  "Soft gradient from warm peach/coral at the horizon to pale blue above. Low haze near the horizon.",
         8:  "Brightening sky with warm yellow tones near the horizon transitioning to clear blue above.",
         9:  "Clear blue sky with slight warmth near the horizon. Bright and luminous.",
         10: "Deep clear blue sky. Uniform brightness with minimal horizon haze.",
         11: "Bright, saturated blue sky. Even illumination across the dome.",
         12: "Intense blue overhead, slightly lighter near the horizon. Maximum brightness.",
-        13: "Bright blue sky, very slightly shifting from peak intensity.",
+        13: "Bright blue sky at peak intensity.",
         14: "Clear blue sky, beginning almost imperceptibly to warm.",
         15: "Blue sky with subtle warm shift. Light becoming slightly more directional.",
         16: "Sky transitioning to warmer blue. Noticeable golden quality to the light.",
-        17: "Golden hour sky. Warm amber-gold tones spreading from the western horizon. Rich saturated colors.",
-        18: "Sunset sky with deep orange, coral, and magenta at the horizon fading to deep blue above.",
+        17: "Golden hour sky. Warm amber-gold tones from the western horizon.",
+        18: "Late golden hour. Rich amber and coral near the western horizon.",
+        19: "Sunset sky. Deep orange and magenta at the horizon fading to deep blue above.",
+        20: "Dusk. Deep orange, coral, and purple at the horizon. Low ambient light.",
     }
     return descs.get(hour, "Clear blue sky.")
 
 
 def get_lighting_description(hour: int) -> str:
-    """Get a natural-language description of lighting conditions at this hour."""
+    """Get a natural-language description of lighting conditions (8am-8pm)."""
     descs = {
-        7:  "Early morning light. Low sun casting long warm shadows. Soft, diffuse golden dawn light with gentle contrast.",
-        8:  "Morning light gaining strength. Sun climbing in the east. Warm directional light with moderate shadow length.",
-        9:  "Mid-morning daylight. Sun well above the horizon. Balanced warm-neutral light with clear shadows.",
-        10: "Late morning light. Strong directional sun from the east-southeast. Neutral bright daylight.",
-        11: "Approaching midday. Nearly overhead sun. Bright, even illumination with short shadows.",
-        12: "Noon / midday light. Sun at its highest point. Maximum brightness with minimal shadows directly below objects.",
-        13: "Early afternoon. Sun beginning its westward descent. Bright, slightly warm directional light.",
-        14: "Mid-afternoon light. Sun in the west-southwest. Clear directional light with lengthening shadows.",
-        15: "Afternoon light. Sun lowering in the west. Increasingly warm and directional light.",
-        16: "Late afternoon. Sun getting lower. Noticeably warm golden light with long shadows stretching eastward.",
-        17: "Golden hour / late afternoon. Low sun casting rich golden-amber light. Long dramatic shadows. Warm color on all surfaces.",
-        18: "Sunset / dusk. Very low sun near the horizon. Deep warm orange-amber light. Extremely long shadows. Dramatic contrast.",
+        8:  "Morning light. Sun low in the east. Warm directional light with long shadows to the west.",
+        9:  "Mid-morning. Sun climbing in the east. Balanced warm-neutral light with clear shadows.",
+        10: "Late morning. Strong directional sun from the east. Neutral bright daylight.",
+        11: "Approaching midday. Sun high in the sky. Bright, even illumination with short shadows.",
+        12: "Noon. Sun near its highest. Maximum brightness with minimal shadows.",
+        13: "Early afternoon. Sun beginning westward descent. Bright directional light.",
+        14: "Mid-afternoon. Sun in the west-southwest. Clear directional light with lengthening shadows.",
+        15: "Afternoon. Sun lowering in the west. Warm directional light.",
+        16: "Late afternoon. Noticeably warm golden light with long shadows to the east.",
+        17: "Golden hour. Low sun in the west. Rich golden-amber light. Long dramatic shadows.",
+        18: "Late golden hour. Very low western sun. Warm amber light on all surfaces.",
+        19: "Sunset. Very low sun near the horizon. Deep warm light. Extremely long shadows.",
+        20: "Dusk. Sun at or just below horizon. Deep warm tones. Very long shadows.",
     }
     return descs.get(hour, "Standard daylight conditions.")
 
 
 def generate_time_slots() -> list[TimeSlot]:
-    """Generate 12 TimeSlots from 7am to 6pm."""
+    """Generate TimeSlots from 8am to 8pm (13 one-hour slots). Sun position moves evenly."""
     slots = []
-    for hour in range(7, 19):
+    for hour in range(FIRST_HOUR, LAST_HOUR + 1):
         sun_el = _compute_sun_elevation(hour)
+        sun_az = _compute_sun_azimuth(hour)
         color_k = _compute_color_temp(hour)
         slots.append(TimeSlot(
             hour=hour,
             label=_format_hour_label(hour),
             sun_elevation=sun_el,
+            sun_azimuth=sun_az,
             color_temp_k=color_k,
-            shadow_description=_shadow_description(hour, sun_el),
+            shadow_description=_shadow_description(hour, sun_el, sun_az),
             sky_description=_sky_description(hour),
             lighting_description=get_lighting_description(hour),
         ))
@@ -203,6 +217,7 @@ def build_prompt(slot: TimeSlot) -> str:
         time_label=slot.label,
         lighting_description=slot.lighting_description,
         sun_elevation=slot.sun_elevation,
+        sun_azimuth=int(slot.sun_azimuth),
         color_temp_description=_color_temp_description(slot.color_temp_k),
         color_temp_k=slot.color_temp_k,
         shadow_description=slot.shadow_description,
