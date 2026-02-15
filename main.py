@@ -161,6 +161,71 @@ async def generate_variants(
     }
 
 
+@app.get("/api/images/{job_id}/animation.gif")
+async def get_animation_gif(job_id: str):
+    """Build and return a looped animated GIF (8am–8pm with crossfade) for download."""
+    import io
+    from PIL import Image
+
+    job_dir = GENERATED_DIR / job_id
+    if not job_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    slots = generate_time_slots()
+    frames = []
+    for i, slot in enumerate(slots):
+        filename = f"slot_{i:02d}_h{slot.hour}.png"
+        filepath = job_dir / filename
+        if not filepath.exists():
+            continue
+        img = Image.open(filepath).convert("RGB")
+        frames.append(img)
+
+    if not frames:
+        raise HTTPException(status_code=404, detail="No slot images found")
+
+    # Crossfade: N blended frames between each pair
+    N_BLEND = 4
+    MAX_SIZE = 512
+    composed = []
+    for i in range(len(frames)):
+        composed.append(frames[i])
+        if i + 1 < len(frames):
+            for k in range(1, N_BLEND + 1):
+                t = k / (N_BLEND + 1)
+                a = frames[i].copy()
+                b = frames[i + 1].copy()
+                if a.size != b.size:
+                    b = b.resize(a.size, Image.Resampling.LANCZOS)
+                blended = Image.blend(a, b, alpha=t)
+                composed.append(blended)
+
+    # Resize to max dimension
+    w, h = composed[0].size
+    if max(w, h) > MAX_SIZE:
+        ratio = MAX_SIZE / max(w, h)
+        nw, nh = int(w * ratio), int(h * ratio)
+        composed = [f.resize((nw, nh), Image.Resampling.LANCZOS) for f in composed]
+
+    # Save as looped GIF (duration in ms)
+    buf = io.BytesIO()
+    duration_ms = 180
+    composed[0].save(
+        buf,
+        format="GIF",
+        save_all=True,
+        append_images=composed[1:],
+        loop=0,
+        duration=duration_ms,
+    )
+    buf.seek(0)
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/gif",
+        headers={"Content-Disposition": f'attachment; filename="living-image-{job_id}.gif"'},
+    )
+
+
 @app.get("/api/images/{job_id}/{filename}")
 async def get_image(job_id: str, filename: str):
     """Serve a generated image."""
