@@ -12,7 +12,7 @@ from .base import BaseAdapter, ModelInfo
 
 class GeminiAdapter(BaseAdapter):
 
-    API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-image-generation:generateContent"
+    API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent"
 
     @property
     def model_info(self) -> ModelInfo:

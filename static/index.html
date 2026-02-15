@@ -643,7 +643,11 @@ $browseBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   $fileInput.click();
 });
-$dropZone.addEventListener('click', () => $fileInput.click());
+$dropZone.addEventListener('click', (e) => {
+  // Don't open file dialog when clicking the model dropdown
+  if (e.target.closest('.model-select-wrapper')) return;
+  $fileInput.click();
+});
 $dropZone.addEventListener('dragover', e => { e.preventDefault(); $dropZone.classList.add('dragover'); });
 $dropZone.addEventListener('dragleave', () => $dropZone.classList.remove('dragover'));
 $dropZone.addEventListener('drop', e => {
