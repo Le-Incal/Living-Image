@@ -603,6 +603,8 @@ const state = {
   generating: false,
   playing: false,
   playAnimationId: null,
+  playStartTime: null,
+  pausedElapsed: null,
 };
 
 // ─── DOM refs ───
@@ -824,9 +826,11 @@ const TIMELAPSE_DURATION_MS = 15000; // 8am to 8pm in 15 seconds
 
 function runTimelapse(timestamp) {
   if (!state.playing) return;
-  if (!state.playStartTime) state.playStartTime = timestamp;
+  if (state.playStartTime == null) {
+    state.playStartTime = timestamp - (state.pausedElapsed ?? 0);
+  }
   const elapsed = timestamp - state.playStartTime;
-  const progress = (elapsed % TIMELAPSE_DURATION_MS) / TIMELAPSE_DURATION_MS; // 0..1, loops
+  const progress = (elapsed % TIMELAPSE_DURATION_MS) / TIMELAPSE_DURATION_MS;
   const val = Math.round(progress * 1000);
   $timeSlider.value = val;
   updateSlider();
@@ -844,7 +848,12 @@ function startTimelapse() {
 }
 
 function stopTimelapse() {
+  if (state.playing && state.playStartTime != null) {
+    const elapsed = (performance.now() - state.playStartTime) % TIMELAPSE_DURATION_MS;
+    state.pausedElapsed = elapsed;
+  }
   state.playing = false;
+  state.playStartTime = null;
   if (state.playAnimationId != null) {
     cancelAnimationFrame(state.playAnimationId);
     state.playAnimationId = null;
