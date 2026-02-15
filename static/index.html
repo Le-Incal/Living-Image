@@ -1,0 +1,884 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Living Image - Crossfade Test Harness</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,200;0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,200;1,9..40,300&family=Newsreader:ital,opsz,wght@0,6..72,300;0,6..72,400;1,6..72,300;1,6..72,400&display=swap');
+
+  :root {
+    --bg: #0d0d0d;
+    --surface: #161616;
+    --surface-raised: #1c1c1c;
+    --border: #252525;
+    --border-active: #3a3a3a;
+    --text: #e8e4df;
+    --text-secondary: #8a8580;
+    --text-dim: #5a5652;
+    --accent: #c9a882;
+    --accent-subtle: rgba(201, 168, 130, 0.08);
+    --accent-glow: rgba(201, 168, 130, 0.35);
+    --success: #6bcf7f;
+    --error: #cf6b6b;
+    --warning: #cfb96b;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'DM Sans', -apple-system, sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ── Upload Screen ── */
+  #upload-screen {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+    background: var(--bg);
+    transition: opacity 0.7s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.7s;
+  }
+  #upload-screen::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(ellipse at 70% 30%, rgba(140, 90, 45, 0.08) 0%, transparent 60%);
+    pointer-events: none;
+  }
+  #upload-screen.hidden { opacity: 0; visibility: hidden; pointer-events: none; }
+
+  .upload-zone {
+    width: 560px;
+    padding: 64px 56px;
+    text-align: center;
+    cursor: pointer;
+    position: relative;
+    border-radius: 16px;
+    border: 1px solid transparent;
+    transition: border-color 0.4s ease, background 0.4s ease;
+  }
+  .upload-zone:hover, .upload-zone.dragover {
+    border-color: var(--border);
+    background: var(--accent-subtle);
+  }
+  .upload-zone h1 {
+    font-family: 'Newsreader', Georgia, serif;
+    font-weight: 300;
+    font-size: 36px;
+    letter-spacing: -0.8px;
+    margin-bottom: 16px;
+    color: var(--text);
+  }
+  .upload-zone p {
+    font-size: 15px;
+    color: var(--text-secondary);
+    line-height: 1.7;
+    font-weight: 300;
+  }
+
+  .upload-config {
+    margin-top: 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .model-select-wrapper {
+    position: relative;
+    width: 280px;
+  }
+  .model-select-wrapper label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+    text-align: left;
+  }
+  .model-select {
+    width: 100%;
+    padding: 10px 16px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    color: var(--text);
+    font-size: 14px;
+    font-family: 'DM Sans', sans-serif;
+    font-weight: 300;
+    appearance: none;
+    cursor: pointer;
+    transition: border-color 0.3s;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8580' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+  }
+  .model-select:hover, .model-select:focus {
+    border-color: var(--accent);
+    outline: none;
+  }
+
+  .browse-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 24px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    color: var(--text);
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 0.2px;
+    transition: all 0.3s ease;
+    font-family: 'DM Sans', sans-serif;
+    cursor: pointer;
+  }
+  .browse-cta:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-subtle);
+  }
+  .browse-cta svg { width: 14px; height: 14px; opacity: 0.6; }
+
+  .upload-format-note {
+    margin-top: 8px;
+    font-size: 11px;
+    color: var(--text-dim);
+    letter-spacing: 0.5px;
+    font-weight: 300;
+  }
+
+  input[type="file"] { display: none; }
+
+  /* ── Main Viewer ── */
+  #viewer {
+    flex: 1;
+    position: relative;
+    display: none;
+    overflow: hidden;
+  }
+  #viewer.active { display: flex; flex-direction: column; }
+
+  /* ── Image Stack ── */
+  .image-stack {
+    flex: 1;
+    position: relative;
+    background: var(--bg);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+  .image-stack img {
+    position: absolute;
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    opacity: 0;
+    transition: none; /* We control opacity via JS for smooth blending */
+    pointer-events: none;
+    image-rendering: high-quality;
+  }
+
+  /* ── Progress Overlay ── */
+  #progress-overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    background: rgba(13, 13, 13, 0.92);
+    z-index: 50;
+    transition: opacity 0.5s;
+  }
+  #progress-overlay.hidden { opacity: 0; pointer-events: none; }
+
+  .progress-content {
+    text-align: center;
+    max-width: 400px;
+  }
+  .progress-title {
+    font-family: 'Newsreader', Georgia, serif;
+    font-size: 24px;
+    font-weight: 300;
+    margin-bottom: 24px;
+    color: var(--text);
+  }
+  .progress-bar-track {
+    width: 320px;
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    overflow: hidden;
+    margin: 0 auto 16px;
+  }
+  .progress-bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    width: 0%;
+    transition: width 0.3s ease;
+  }
+  .progress-status {
+    font-size: 13px;
+    color: var(--text-secondary);
+    font-weight: 300;
+  }
+  .progress-details {
+    margin-top: 20px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    justify-content: center;
+    max-width: 360px;
+  }
+  .progress-dot {
+    width: 24px;
+    height: 24px;
+    border-radius: 6px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    font-size: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--text-dim);
+    transition: all 0.3s;
+  }
+  .progress-dot.pending { }
+  .progress-dot.running { border-color: var(--warning); color: var(--warning); }
+  .progress-dot.done { border-color: var(--success); background: rgba(107, 207, 127, 0.1); color: var(--success); }
+  .progress-dot.error { border-color: var(--error); background: rgba(207, 107, 107, 0.1); color: var(--error); }
+
+  /* ── Controls Panel ── */
+  #controls {
+    position: relative;
+    padding: 0 40px 28px;
+    z-index: 10;
+    display: none;
+  }
+  #controls.active { display: block; }
+
+  .controls-backdrop {
+    position: absolute;
+    bottom: 0; left: 0; right: 0;
+    height: 200px;
+    background: linear-gradient(to top, rgba(13,13,13,0.97) 0%, rgba(13,13,13,0.8) 50%, rgba(13,13,13,0.4) 75%, transparent 100%);
+    pointer-events: none;
+  }
+
+  .controls-inner {
+    max-width: 680px;
+    margin: 0 auto;
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 20px 28px 18px;
+  }
+
+  .time-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 14px;
+  }
+  .time-label {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 400;
+    letter-spacing: 0.8px;
+    text-transform: uppercase;
+  }
+  .time-value-group { display: flex; align-items: baseline; gap: 3px; }
+  .time-value {
+    font-size: 32px;
+    font-weight: 200;
+    letter-spacing: -1.5px;
+    color: var(--text);
+    font-variant-numeric: tabular-nums;
+  }
+  .time-period {
+    font-size: 12px;
+    color: var(--text-dim);
+    font-weight: 300;
+    margin-left: 2px;
+  }
+
+  .controls-meta {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+  .meta-badge {
+    font-size: 11px;
+    color: var(--text-dim);
+    padding: 3px 10px;
+    background: var(--surface-raised);
+    border-radius: 6px;
+    border: 1px solid var(--border);
+    font-weight: 400;
+    letter-spacing: 0.3px;
+  }
+
+  .slider-track { height: 32px; display: flex; align-items: center; }
+
+  input[type="range"] {
+    -webkit-appearance: none; appearance: none;
+    width: 100%; height: 2px;
+    background: var(--border);
+    border-radius: 1px; outline: none; cursor: pointer;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); cursor: grab;
+    box-shadow: 0 0 24px var(--accent-glow), 0 0 6px rgba(201,168,130,0.2);
+    transition: transform 0.2s cubic-bezier(0.4,0,0.2,1), box-shadow 0.2s ease;
+  }
+  input[type="range"]::-webkit-slider-thumb:hover {
+    transform: scale(1.3);
+    box-shadow: 0 0 32px var(--accent-glow);
+  }
+  input[type="range"]::-webkit-slider-thumb:active { cursor: grabbing; }
+  input[type="range"]::-moz-range-thumb {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--accent); cursor: grab; border: none;
+    box-shadow: 0 0 24px var(--accent-glow);
+  }
+
+  .time-markers {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 4px;
+    padding: 0 2px;
+  }
+  .time-marker {
+    font-size: 9px;
+    color: var(--text-dim);
+    font-weight: 300;
+    letter-spacing: 0.3px;
+    opacity: 0.6;
+  }
+
+  .controls-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .btn-reset {
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 14px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    transition: all 0.2s;
+  }
+  .btn-reset:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
+  .btn-prompts {
+    font-size: 11px;
+    color: var(--text-dim);
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    transition: color 0.2s;
+  }
+  .btn-prompts:hover { color: var(--text-secondary); }
+
+  /* ── Prompt Preview Modal ── */
+  #prompt-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 200;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0,0,0,0.7);
+    backdrop-filter: blur(4px);
+  }
+  #prompt-modal.active { display: flex; }
+
+  .modal-content {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 32px;
+    max-width: 700px;
+    max-height: 80vh;
+    overflow-y: auto;
+    width: 90%;
+  }
+  .modal-content h2 {
+    font-family: 'Newsreader', Georgia, serif;
+    font-weight: 300;
+    font-size: 22px;
+    margin-bottom: 20px;
+  }
+  .modal-content pre {
+    font-size: 12px;
+    color: var(--text-secondary);
+    background: var(--bg);
+    padding: 16px;
+    border-radius: 8px;
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    margin-bottom: 16px;
+    border: 1px solid var(--border);
+    line-height: 1.6;
+  }
+  .modal-content .prompt-hour {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--accent);
+    margin-bottom: 8px;
+  }
+  .modal-close {
+    float: right;
+    font-size: 13px;
+    color: var(--text-secondary);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 5px 14px;
+    cursor: pointer;
+    font-family: 'DM Sans', sans-serif;
+  }
+  .modal-close:hover { border-color: var(--accent); color: var(--accent); }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  ::-webkit-scrollbar-thumb:hover { background: var(--border-active); }
+</style>
+</head>
+<body>
+
+<!-- Upload Screen -->
+<div id="upload-screen">
+  <div class="upload-zone" id="drop-zone">
+    <h1>Living Image</h1>
+    <p>Upload an architectural render to generate<br>12 time-of-day lighting variants</p>
+
+    <div class="upload-config">
+      <div class="model-select-wrapper">
+        <label>Generation Model</label>
+        <select class="model-select" id="model-select">
+          <option value="" disabled>Loading models...</option>
+        </select>
+      </div>
+
+      <div class="browse-cta" id="browse-btn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M12 5v14M5 12h14"/>
+        </svg>
+        Upload image
+      </div>
+    </div>
+
+    <p class="upload-format-note">PNG, JPG up to 20MB</p>
+    <input type="file" id="file-input" accept="image/*">
+  </div>
+</div>
+
+<!-- Main Viewer -->
+<div id="viewer">
+  <!-- Image Stack -->
+  <div class="image-stack" id="image-stack">
+    <!-- 12 images will be injected here -->
+  </div>
+
+  <!-- Progress Overlay -->
+  <div id="progress-overlay">
+    <div class="progress-content">
+      <div class="progress-title">Generating variants...</div>
+      <div class="progress-bar-track">
+        <div class="progress-bar-fill" id="progress-fill"></div>
+      </div>
+      <div class="progress-status" id="progress-status">Preparing 12 time-of-day variants</div>
+      <div class="progress-details" id="progress-dots"></div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls">
+    <div class="controls-backdrop"></div>
+    <div class="controls-inner">
+      <div class="time-header">
+        <span class="time-label">Time of Day</span>
+        <div class="controls-meta">
+          <span class="meta-badge" id="model-badge">-</span>
+          <div class="time-value-group">
+            <span class="time-value" id="time-display">12:00</span>
+            <span class="time-period" id="time-period">PM</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="slider-track">
+        <input type="range" id="time-slider" min="0" max="1000" value="455">
+      </div>
+
+      <div class="time-markers">
+        <span class="time-marker">7 AM</span>
+        <span class="time-marker">9</span>
+        <span class="time-marker">11</span>
+        <span class="time-marker">1 PM</span>
+        <span class="time-marker">3</span>
+        <span class="time-marker">5</span>
+        <span class="time-marker">7 PM</span>
+      </div>
+
+      <div class="controls-footer">
+        <button class="btn-reset" id="btn-reset">New image</button>
+        <button class="btn-prompts" id="btn-prompts">View prompts</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Prompt Preview Modal -->
+<div id="prompt-modal">
+  <div class="modal-content">
+    <button class="modal-close" id="modal-close">Close</button>
+    <h2>Prompt Preview</h2>
+    <div id="prompt-list"></div>
+  </div>
+</div>
+
+<script>
+// ─── State ───
+const state = {
+  models: [],
+  selectedModel: '',
+  imageFile: null,
+  variants: [],    // array of 12 {hour, label, image_url, img_element}
+  jobId: null,
+  generating: false,
+};
+
+// ─── DOM refs ───
+const $uploadScreen = document.getElementById('upload-screen');
+const $dropZone = document.getElementById('drop-zone');
+const $browseBtn = document.getElementById('browse-btn');
+const $fileInput = document.getElementById('file-input');
+const $modelSelect = document.getElementById('model-select');
+const $viewer = document.getElementById('viewer');
+const $imageStack = document.getElementById('image-stack');
+const $progressOverlay = document.getElementById('progress-overlay');
+const $progressFill = document.getElementById('progress-fill');
+const $progressStatus = document.getElementById('progress-status');
+const $progressDots = document.getElementById('progress-dots');
+const $controls = document.getElementById('controls');
+const $timeSlider = document.getElementById('time-slider');
+const $timeDisplay = document.getElementById('time-display');
+const $timePeriod = document.getElementById('time-period');
+const $modelBadge = document.getElementById('model-badge');
+const $btnReset = document.getElementById('btn-reset');
+const $btnPrompts = document.getElementById('btn-prompts');
+const $promptModal = document.getElementById('prompt-modal');
+const $promptList = document.getElementById('prompt-list');
+const $modalClose = document.getElementById('modal-close');
+
+// ─── Init: Load models ───
+async function loadModels() {
+  try {
+    const resp = await fetch('/api/models');
+    state.models = await resp.json();
+    $modelSelect.innerHTML = '';
+    state.models.forEach(m => {
+      const opt = document.createElement('option');
+      opt.value = m.id;
+      opt.textContent = `${m.name} (~$${m.cost_per_image}/img)`;
+      $modelSelect.appendChild(opt);
+    });
+    if (state.models.length > 0) {
+      state.selectedModel = state.models[0].id;
+    }
+  } catch (e) {
+    console.error('Failed to load models:', e);
+    $modelSelect.innerHTML = '<option disabled>Failed to load models</option>';
+  }
+}
+
+$modelSelect.addEventListener('change', e => {
+  state.selectedModel = e.target.value;
+});
+
+// ─── Upload handling ───
+$browseBtn.addEventListener('click', (e) => {
+  e.stopPropagation();
+  $fileInput.click();
+});
+$dropZone.addEventListener('click', () => $fileInput.click());
+$dropZone.addEventListener('dragover', e => { e.preventDefault(); $dropZone.classList.add('dragover'); });
+$dropZone.addEventListener('dragleave', () => $dropZone.classList.remove('dragover'));
+$dropZone.addEventListener('drop', e => {
+  e.preventDefault();
+  $dropZone.classList.remove('dragover');
+  const f = e.dataTransfer.files;
+  if (f.length > 0 && f[0].type.startsWith('image/')) handleUpload(f[0]);
+});
+$fileInput.addEventListener('change', e => {
+  if (e.target.files.length > 0) handleUpload(e.target.files[0]);
+});
+
+async function handleUpload(file) {
+  if (!state.selectedModel) {
+    alert('Please select a model first');
+    return;
+  }
+  state.imageFile = file;
+
+  // Switch to viewer
+  $uploadScreen.classList.add('hidden');
+  $viewer.classList.add('active');
+  $progressOverlay.classList.remove('hidden');
+
+  // Update model badge
+  const modelInfo = state.models.find(m => m.id === state.selectedModel);
+  $modelBadge.textContent = modelInfo ? modelInfo.name : state.selectedModel;
+
+  // Init progress dots
+  $progressDots.innerHTML = '';
+  for (let i = 0; i < 12; i++) {
+    const dot = document.createElement('div');
+    dot.className = 'progress-dot pending';
+    dot.textContent = `${7 + i}`;
+    dot.id = `dot-${i}`;
+    $progressDots.appendChild(dot);
+  }
+
+  await generateVariants(file);
+}
+
+async function generateVariants(file) {
+  state.generating = true;
+  $progressStatus.textContent = 'Uploading image and starting generation...';
+  $progressFill.style.width = '5%';
+
+  // Mark all as running
+  for (let i = 0; i < 12; i++) {
+    document.getElementById(`dot-${i}`).className = 'progress-dot running';
+  }
+
+  const formData = new FormData();
+  formData.append('image', file);
+  formData.append('model_id', state.selectedModel);
+
+  try {
+    const resp = await fetch('/api/generate', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!resp.ok) {
+      const err = await resp.json();
+      throw new Error(err.detail || 'Generation failed');
+    }
+
+    const data = await resp.json();
+    state.jobId = data.job_id;
+    state.variants = data.variants;
+
+    // Update progress dots and load images
+    let loaded = 0;
+    const totalValid = data.variants.filter(v => v.status === 'success').length;
+
+    $imageStack.innerHTML = '';
+
+    for (let i = 0; i < data.variants.length; i++) {
+      const v = data.variants[i];
+      const dot = document.getElementById(`dot-${i}`);
+
+      if (v.status === 'success') {
+        dot.className = 'progress-dot done';
+
+        const img = document.createElement('img');
+        img.src = v.image_url;
+        img.dataset.index = i;
+        img.dataset.hour = v.hour;
+        img.alt = v.label;
+
+        img.onload = () => {
+          loaded++;
+          const pct = 10 + (loaded / totalValid) * 85;
+          $progressFill.style.width = `${pct}%`;
+          $progressStatus.textContent = `Loading images: ${loaded}/${totalValid}`;
+
+          if (loaded === totalValid) {
+            finishGeneration();
+          }
+        };
+
+        $imageStack.appendChild(img);
+        v.img_element = img;
+      } else {
+        dot.className = 'progress-dot error';
+        dot.title = v.error || 'Failed';
+      }
+    }
+
+    $progressFill.style.width = '95%';
+    $progressStatus.textContent = `Generated ${data.success}/${data.total} variants. Loading...`;
+
+    if (totalValid === 0) {
+      $progressStatus.textContent = 'All generations failed. Check API keys and try again.';
+      state.generating = false;
+    }
+
+  } catch (e) {
+    console.error('Generation error:', e);
+    $progressStatus.textContent = `Error: ${e.message}`;
+    state.generating = false;
+  }
+}
+
+function finishGeneration() {
+  state.generating = false;
+  $progressFill.style.width = '100%';
+  $progressStatus.textContent = 'Complete!';
+
+  setTimeout(() => {
+    $progressOverlay.classList.add('hidden');
+    $controls.classList.add('active');
+    updateSlider();
+  }, 600);
+}
+
+// ─── Slider and crossfade logic ───
+function sliderToTime(value) {
+  // Slider 0-1000 maps to 7.0-18.0 (hours)
+  return 7 + (value / 1000) * 11;
+}
+
+function formatTime(hourFloat) {
+  const h24 = hourFloat;
+  const h12 = h24 % 12 || 12;
+  const m = Math.round((h24 % 1) * 60);
+  return {
+    time: `${Math.floor(h12)}:${m.toString().padStart(2, '0')}`,
+    period: h24 >= 12 ? 'PM' : 'AM',
+  };
+}
+
+function updateSlider() {
+  const val = parseInt($timeSlider.value);
+  const hourFloat = sliderToTime(val);
+  const fmt = formatTime(hourFloat);
+  $timeDisplay.textContent = fmt.time;
+  $timePeriod.textContent = fmt.period;
+
+  // Find the two adjacent keyframes to blend
+  const validVariants = state.variants.filter(v => v.status === 'success' && v.img_element);
+  if (validVariants.length === 0) return;
+
+  // Find lower and upper keyframe
+  let lower = validVariants[0];
+  let upper = validVariants[validVariants.length - 1];
+
+  for (let i = 0; i < validVariants.length - 1; i++) {
+    if (validVariants[i].hour <= hourFloat && validVariants[i + 1].hour > hourFloat) {
+      lower = validVariants[i];
+      upper = validVariants[i + 1];
+      break;
+    }
+  }
+
+  // If past the last keyframe, just show the last one
+  if (hourFloat >= validVariants[validVariants.length - 1].hour) {
+    lower = validVariants[validVariants.length - 1];
+    upper = lower;
+  }
+
+  // Compute blend ratio
+  let blend = 0;
+  if (lower !== upper) {
+    blend = (hourFloat - lower.hour) / (upper.hour - lower.hour);
+    blend = Math.max(0, Math.min(1, blend));
+  }
+
+  // Apply opacity to all images
+  for (const v of validVariants) {
+    if (!v.img_element) continue;
+
+    if (v === lower && v === upper) {
+      v.img_element.style.opacity = 1;
+    } else if (v === lower) {
+      v.img_element.style.opacity = 1;
+    } else if (v === upper) {
+      v.img_element.style.opacity = blend;
+    } else {
+      v.img_element.style.opacity = 0;
+    }
+  }
+}
+
+$timeSlider.addEventListener('input', updateSlider);
+
+// ─── Reset ───
+$btnReset.addEventListener('click', () => {
+  state.variants = [];
+  state.jobId = null;
+  state.imageFile = null;
+  $imageStack.innerHTML = '';
+  $viewer.classList.remove('active');
+  $controls.classList.remove('active');
+  $progressOverlay.classList.remove('hidden');
+  $uploadScreen.classList.remove('hidden');
+  $fileInput.value = '';
+});
+
+// ─── Prompt preview ───
+$btnPrompts.addEventListener('click', async () => {
+  try {
+    const resp = await fetch('/api/prompt-preview');
+    const prompts = await resp.json();
+    $promptList.innerHTML = '';
+    prompts.forEach(p => {
+      const div = document.createElement('div');
+      div.innerHTML = `<div class="prompt-hour">${p.label} (hour ${p.hour})</div><pre>${p.prompt}</pre>`;
+      $promptList.appendChild(div);
+    });
+    $promptModal.classList.add('active');
+  } catch (e) {
+    console.error('Failed to load prompts:', e);
+  }
+});
+
+$modalClose.addEventListener('click', () => $promptModal.classList.remove('active'));
+$promptModal.addEventListener('click', e => {
+  if (e.target === $promptModal) $promptModal.classList.remove('active');
+});
+
+// ─── Boot ───
+loadModels();
+</script>
+</body>
+</html>

@@ -1,0 +1,161 @@
+"""
+Living Image Crossfade Test Harness - FastAPI Server
+
+Serves the frontend and handles image generation requests
+across multiple AI model providers.
+"""
+
+import asyncio
+import base64
+import os
+import uuid
+from pathlib import Path
+
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, JSONResponse
+
+from prompts import generate_time_slots, build_prompt
+from adapters.base import AdapterRegistry
+
+app = FastAPI(title="Living Image Crossfade Test Harness")
+
+# Directory to store generated images
+GENERATED_DIR = Path(__file__).parent / "generated_images"
+GENERATED_DIR.mkdir(exist_ok=True)
+
+# Adapter registry (singleton)
+registry = AdapterRegistry()
+
+
+@app.get("/health")
+async def health():
+    return {"status": "ok"}
+
+
+@app.get("/api/models")
+async def list_models():
+    """Return available model options for the dropdown."""
+    return [m.to_dict() for m in registry.list_models()]
+
+
+@app.get("/api/time-slots")
+async def time_slots():
+    """Return the 12 time slots with metadata."""
+    slots = generate_time_slots()
+    return [
+        {
+            "hour": s.hour,
+            "label": s.label,
+            "sun_elevation": s.sun_elevation,
+            "color_temp_k": s.color_temp_k,
+        }
+        for s in slots
+    ]
+
+
+@app.get("/api/prompt-preview")
+async def prompt_preview():
+    """Preview all 12 prompts for debugging/iteration."""
+    slots = generate_time_slots()
+    return [
+        {
+            "hour": s.hour,
+            "label": s.label,
+            "prompt": build_prompt(s),
+        }
+        for s in slots
+    ]
+
+
+@app.post("/api/generate")
+async def generate_variants(
+    image: UploadFile = File(...),
+    model_id: str = Form(...),
+):
+    """
+    Generate 12 relit variants of the uploaded image.
+
+    Fires 12 API calls (one per time slot) and returns image paths
+    as they complete, using server-sent events or a batch response.
+    """
+    adapter = registry.get_adapter(model_id)
+    if adapter is None:
+        raise HTTPException(status_code=400, detail=f"Unknown model: {model_id}")
+
+    image_bytes = await image.read()
+    mime_type = image.content_type or "image/png"
+
+    # Create a job directory
+    job_id = str(uuid.uuid4())[:8]
+    job_dir = GENERATED_DIR / job_id
+    job_dir.mkdir(exist_ok=True)
+
+    # Save the original
+    original_path = job_dir / "original.png"
+    original_path.write_bytes(image_bytes)
+
+    slots = generate_time_slots()
+    results = []
+    errors = []
+
+    # Fire all 12 requests concurrently
+    async def generate_one(slot, index):
+        prompt = build_prompt(slot)
+        try:
+            result_bytes = await adapter.edit_image(image_bytes, prompt, mime_type)
+            filename = f"slot_{index:02d}_h{slot.hour}.png"
+            filepath = job_dir / filename
+            filepath.write_bytes(result_bytes)
+            return {
+                "index": index,
+                "hour": slot.hour,
+                "label": slot.label,
+                "image_url": f"/api/images/{job_id}/{filename}",
+                "status": "success",
+            }
+        except Exception as e:
+            return {
+                "index": index,
+                "hour": slot.hour,
+                "label": slot.label,
+                "image_url": None,
+                "status": "error",
+                "error": str(e),
+            }
+
+    tasks = [generate_one(slot, i) for i, slot in enumerate(slots)]
+    results = await asyncio.gather(*tasks)
+
+    # Sort by index
+    results.sort(key=lambda r: r["index"])
+
+    success_count = sum(1 for r in results if r["status"] == "success")
+
+    return {
+        "job_id": job_id,
+        "model": model_id,
+        "total": len(slots),
+        "success": success_count,
+        "errors": len(slots) - success_count,
+        "original_url": f"/api/images/{job_id}/original.png",
+        "variants": results,
+    }
+
+
+@app.get("/api/images/{job_id}/{filename}")
+async def get_image(job_id: str, filename: str):
+    """Serve a generated image."""
+    filepath = GENERATED_DIR / job_id / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+    return FileResponse(filepath, media_type="image/png")
+
+
+# Serve the frontend
+STATIC_DIR = Path(__file__).parent / "static"
+
+
+@app.get("/")
+async def index():
+    return FileResponse(STATIC_DIR / "index.html")
