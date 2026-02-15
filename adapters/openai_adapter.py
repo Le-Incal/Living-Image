@@ -1,7 +1,8 @@
 """
-OpenAI GPT-4o image editing adapter.
+OpenAI GPT Image editing adapter.
 
-Uses the OpenAI API's image generation endpoint with image input.
+Uses the OpenAI Images API edit endpoint (image in + prompt → image out).
+Supports gpt-image-1, gpt-image-1.5, gpt-image-1-mini.
 """
 
 import os
@@ -13,13 +14,12 @@ from .base import BaseAdapter, ModelInfo
 class OpenAIAdapter(BaseAdapter):
 
     API_URL = "https://api.openai.com/v1/images/edits"
-    CHAT_URL = "https://api.openai.com/v1/chat/completions"
 
     @property
     def model_info(self) -> ModelInfo:
         return ModelInfo(
             id="openai",
-            name="GPT-4o Image",
+            name="GPT Image (gpt-image-1)",
             provider="openai",
             cost_per_image=0.08,
         )
@@ -35,33 +35,21 @@ class OpenAIAdapter(BaseAdapter):
             raise ValueError("OPENAI_API_KEY environment variable not set")
 
         b64_image = base64.b64encode(image_bytes).decode("utf-8")
+        image_url = f"data:{mime_type};base64,{b64_image}"
 
-        # Use chat completions with image input and image generation
         payload = {
-            "model": "gpt-4o",
-            "messages": [
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:{mime_type};base64,{b64_image}",
-                            },
-                        },
-                        {
-                            "type": "text",
-                            "text": prompt,
-                        },
-                    ],
-                }
-            ],
-            "modalities": ["text", "image"],
+            "model": "gpt-image-1",
+            "images": [{"image_url": image_url}],
+            "prompt": prompt,
+            "n": 1,
+            "size": "auto",
+            "quality": "high",
+            "output_format": "png",
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:
             resp = await client.post(
-                self.CHAT_URL,
+                self.API_URL,
                 json=payload,
                 headers={
                     "Content-Type": "application/json",
@@ -71,22 +59,12 @@ class OpenAIAdapter(BaseAdapter):
             resp.raise_for_status()
             data = resp.json()
 
-        # Extract image from response
-        choices = data.get("choices", [])
-        if not choices:
-            raise RuntimeError("No choices in OpenAI response")
+        results = data.get("data", [])
+        if not results:
+            raise RuntimeError("No image in OpenAI response")
 
-        message = choices[0].get("message", {})
-        content = message.get("content", [])
-
-        # Content can be a list of parts or a string
-        if isinstance(content, list):
-            for part in content:
-                if isinstance(part, dict) and part.get("type") == "image_url":
-                    url = part["image_url"]["url"]
-                    if url.startswith("data:"):
-                        # Extract base64 from data URL
-                        b64_part = url.split(",", 1)[1]
-                        return base64.b64decode(b64_part)
+        b64_result = results[0].get("b64_json")
+        if b64_result:
+            return base64.b64decode(b64_result)
 
         raise RuntimeError("No image found in OpenAI response")
