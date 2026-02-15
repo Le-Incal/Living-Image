@@ -573,6 +573,13 @@
 </div>
 
 <script>
+// ─── Helpers ───
+function escapeHtml(s) {
+  const div = document.createElement('div');
+  div.textContent = s;
+  return div.innerHTML;
+}
+
 // ─── State ───
 const state = {
   models: [],
@@ -749,7 +756,9 @@ async function generateVariants(file) {
     $progressStatus.textContent = `Generated ${data.success}/${data.total} variants. Loading...`;
 
     if (totalValid === 0) {
-      $progressStatus.textContent = 'All generations failed. Check API keys and try again.';
+      const firstError = data.variants.find(v => v.error);
+      const errDetail = firstError ? firstError.error : 'Unknown error';
+      $progressStatus.innerHTML = 'All generations failed. Check API keys and try again.<br><span style="color: var(--error); font-size: 12px; display: block; margin-top: 8px; max-width: 360px; margin-left: auto; margin-right: auto;">' + escapeHtml(errDetail) + '</span>';
       state.generating = false;
     }
 

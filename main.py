@@ -6,10 +6,13 @@ across multiple AI model providers.
 """
 
 import asyncio
-import base64
+import logging
 import os
 import uuid
 from pathlib import Path
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.staticfiles import StaticFiles
@@ -31,6 +34,19 @@ registry = AdapterRegistry()
 @app.get("/health")
 async def health():
     return {"status": "ok"}
+
+
+@app.get("/api/keys-check")
+async def keys_check():
+    """
+    Report which API keys are set (values never exposed).
+    Use this to verify Railway env vars are loaded.
+    """
+    return {
+        "GEMINI_API_KEY": bool(os.environ.get("GEMINI_API_KEY")),
+        "OPENAI_API_KEY": bool(os.environ.get("OPENAI_API_KEY")),
+        "XAI_API_KEY": bool(os.environ.get("XAI_API_KEY")),
+    }
 
 
 @app.get("/api/models")
@@ -115,13 +131,19 @@ async def generate_variants(
                 "status": "success",
             }
         except Exception as e:
+            err_msg = str(e)
+            logger.warning(
+                "Generation failed for slot %s (hour %s): %s",
+                index, slot.hour, err_msg,
+                exc_info=True,
+            )
             return {
                 "index": index,
                 "hour": slot.hour,
                 "label": slot.label,
                 "image_url": None,
                 "status": "error",
-                "error": str(e),
+                "error": err_msg,
             }
 
     tasks = [generate_one(slot, i) for i, slot in enumerate(slots)]
