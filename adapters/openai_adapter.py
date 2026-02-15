@@ -10,6 +10,9 @@ import base64
 import httpx
 from .base import BaseAdapter, ModelInfo
 
+# Reinforce relight-only so output keeps same composition and framing
+RELIGHT_ONLY_PREFIX = "Relight only; preserve exact composition, framing, and all structure. "
+
 
 class OpenAIAdapter(BaseAdapter):
 
@@ -37,14 +40,16 @@ class OpenAIAdapter(BaseAdapter):
         b64_image = base64.b64encode(image_bytes).decode("utf-8")
         image_url = f"data:{mime_type};base64,{b64_image}"
 
+        # input_fidelity="high" keeps the same composition, geometry, and framing (relight only)
         payload = {
             "model": "gpt-image-1",
             "images": [{"image_url": image_url}],
-            "prompt": prompt,
+            "prompt": RELIGHT_ONLY_PREFIX + prompt,
             "n": 1,
             "size": "auto",
             "quality": "high",
             "output_format": "png",
+            "input_fidelity": "high",
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:

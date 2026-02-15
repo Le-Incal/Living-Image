@@ -1,7 +1,8 @@
 """
 xAI Grok Imagine adapter for image relighting.
 
-Uses the xAI API's image editing endpoint.
+Uses the xAI Images Edits endpoint so the model edits the given image in place
+rather than generating a new scene from the prompt.
 """
 
 import os
@@ -9,10 +10,16 @@ import base64
 import httpx
 from .base import BaseAdapter, ModelInfo
 
+# Prefix to force edit-in-place: same building/scene, only lighting changes
+RELIGHT_ONLY_PREFIX = (
+    "Only change the lighting in this exact image. "
+    "Keep the same building, composition, camera angle, and every structural detail. "
+)
+
 
 class XAIAdapter(BaseAdapter):
 
-    API_URL = "https://api.x.ai/v1/images/generations"
+    API_URL = "https://api.x.ai/v1/images/edits"
 
     @property
     def model_info(self) -> ModelInfo:
@@ -34,13 +41,14 @@ class XAIAdapter(BaseAdapter):
             raise ValueError("XAI_API_KEY environment variable not set")
 
         b64_image = base64.b64encode(image_bytes).decode("utf-8")
+        image_url = f"data:{mime_type};base64,{b64_image}"
 
+        # Edits endpoint expects "image": { "url", "type": "image_url" }
         payload = {
             "model": "grok-imagine-image",
-            "prompt": prompt,
-            "image_url": f"data:{mime_type};base64,{b64_image}",
-            "n": 1,
-            "image_format": "base64",
+            "prompt": RELIGHT_ONLY_PREFIX + prompt,
+            "image": {"url": image_url, "type": "image_url"},
+            "response_format": "b64_json",
         }
 
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -55,7 +63,7 @@ class XAIAdapter(BaseAdapter):
             resp.raise_for_status()
             data = resp.json()
 
-        # Extract image from response
+        # Response shape may match generations (data array) or differ for edits
         results = data.get("data", [])
         if not results:
             raise RuntimeError("No data in xAI response")
@@ -64,7 +72,6 @@ class XAIAdapter(BaseAdapter):
         if b64_result:
             return base64.b64decode(b64_result)
 
-        # If URL is returned instead, fetch it
         url = results[0].get("url")
         if url:
             async with httpx.AsyncClient(timeout=60.0) as client:

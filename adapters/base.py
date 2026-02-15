@@ -63,15 +63,10 @@ class AdapterRegistry:
     """Registry mapping model IDs to adapter instances."""
 
     def __init__(self):
-        # Import here to avoid circular deps
         from .gemini import GeminiAdapter
-        from .openai_adapter import OpenAIAdapter
-        from .xai import XAIAdapter
 
         self._adapters: dict[str, BaseAdapter] = {
             "gemini": GeminiAdapter(),
-            "openai": OpenAIAdapter(),
-            "xai": XAIAdapter(),
         }
 
     def list_models(self) -> list[ModelInfo]:

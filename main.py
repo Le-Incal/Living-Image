@@ -15,8 +15,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException
-from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, Response
 
 from prompts import generate_time_slots, build_prompt
 from adapters.base import AdapterRegistry
@@ -87,13 +86,10 @@ async def prompt_preview():
 @app.post("/api/generate")
 async def generate_variants(
     image: UploadFile = File(...),
-    model_id: str = Form(...),
+    model_id: str = Form("gemini"),
 ):
     """
-    Generate 12 relit variants of the uploaded image.
-
-    Fires 12 API calls (one per time slot) and returns image paths
-    as they complete, using server-sent events or a batch response.
+    Generate 12 relit variants of the uploaded image (Gemini only).
     """
     adapter = registry.get_adapter(model_id)
     if adapter is None:
@@ -172,6 +168,30 @@ async def get_image(job_id: str, filename: str):
     if not filepath.exists():
         raise HTTPException(status_code=404, detail="Image not found")
     return FileResponse(filepath, media_type="image/png")
+
+
+@app.get("/api/images/{job_id}/{filename}/upscale")
+async def upscale_image(job_id: str, filename: str):
+    """Return a 2x upscaled version of the image for download."""
+    import io
+    from PIL import Image
+
+    filepath = GENERATED_DIR / job_id / filename
+    if not filepath.exists():
+        raise HTTPException(status_code=404, detail="Image not found")
+
+    img = Image.open(filepath).convert("RGB")
+    w, h = img.size
+    upscaled = img.resize((w * 2, h * 2), Image.Resampling.LANCZOS)
+
+    buf = io.BytesIO()
+    upscaled.save(buf, format="PNG")
+    download_name = filename.removesuffix(".png") + "_2x.png"
+    return Response(
+        content=buf.getvalue(),
+        media_type="image/png",
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )
 
 
 # Serve the frontend

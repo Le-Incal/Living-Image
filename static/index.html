@@ -87,45 +87,6 @@
 
   .upload-config {
     margin-top: 32px;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    gap: 16px;
-  }
-
-  .model-select-wrapper {
-    position: relative;
-    width: 280px;
-  }
-  .model-select-wrapper label {
-    display: block;
-    font-size: 11px;
-    color: var(--text-dim);
-    letter-spacing: 0.8px;
-    text-transform: uppercase;
-    margin-bottom: 6px;
-    text-align: left;
-  }
-  .model-select {
-    width: 100%;
-    padding: 10px 16px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    color: var(--text);
-    font-size: 14px;
-    font-family: 'DM Sans', sans-serif;
-    font-weight: 300;
-    appearance: none;
-    cursor: pointer;
-    transition: border-color 0.3s;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a8580' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 14px center;
-  }
-  .model-select:hover, .model-select:focus {
-    border-color: var(--accent);
-    outline: none;
   }
 
   .browse-cta {
@@ -236,31 +197,6 @@
     color: var(--text-secondary);
     font-weight: 300;
   }
-  .progress-details {
-    margin-top: 20px;
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    justify-content: center;
-    max-width: 360px;
-  }
-  .progress-dot {
-    width: 24px;
-    height: 24px;
-    border-radius: 6px;
-    background: var(--surface);
-    border: 1px solid var(--border);
-    font-size: 9px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    color: var(--text-dim);
-    transition: all 0.3s;
-  }
-  .progress-dot.pending { }
-  .progress-dot.running { border-color: var(--warning); color: var(--warning); }
-  .progress-dot.done { border-color: var(--success); background: rgba(107, 207, 127, 0.1); color: var(--success); }
-  .progress-dot.error { border-color: var(--error); background: rgba(207, 107, 107, 0.1); color: var(--error); }
 
   /* ── Controls Panel ── */
   #controls {
@@ -377,12 +313,14 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
     margin-top: 12px;
     padding-top: 12px;
     border-top: 1px solid var(--border);
   }
 
-  .btn-reset {
+  .btn-reset, .btn-upscale {
     font-size: 12px;
     color: var(--text-secondary);
     background: none;
@@ -393,9 +331,18 @@
     font-family: 'DM Sans', sans-serif;
     transition: all 0.2s;
   }
-  .btn-reset:hover {
+  .btn-reset:hover, .btn-upscale:hover {
     border-color: var(--accent);
     color: var(--accent);
+  }
+
+  .btn-upscale {
+    background: var(--accent-subtle);
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+  .btn-upscale:hover {
+    background: rgba(201, 168, 130, 0.18);
   }
 
   .btn-prompts {
@@ -487,13 +434,6 @@
     <p>Upload an architectural render to generate<br>12 time-of-day lighting variants</p>
 
     <div class="upload-config">
-      <div class="model-select-wrapper">
-        <label>Generation Model</label>
-        <select class="model-select" id="model-select">
-          <option value="" disabled>Loading models...</option>
-        </select>
-      </div>
-
       <div class="browse-cta" id="browse-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M12 5v14M5 12h14"/>
@@ -522,7 +462,6 @@
         <div class="progress-bar-fill" id="progress-fill"></div>
       </div>
       <div class="progress-status" id="progress-status">Preparing 12 time-of-day variants</div>
-      <div class="progress-details" id="progress-dots"></div>
     </div>
   </div>
 
@@ -533,7 +472,6 @@
       <div class="time-header">
         <span class="time-label">Time of Day</span>
         <div class="controls-meta">
-          <span class="meta-badge" id="model-badge">-</span>
           <div class="time-value-group">
             <span class="time-value" id="time-display">12:00</span>
             <span class="time-period" id="time-period">PM</span>
@@ -557,6 +495,7 @@
 
       <div class="controls-footer">
         <button class="btn-reset" id="btn-reset">New image</button>
+        <button class="btn-upscale" id="btn-upscale">Upscale &amp; download</button>
         <button class="btn-prompts" id="btn-prompts">View prompts</button>
       </div>
     </div>
@@ -582,10 +521,8 @@ function escapeHtml(s) {
 
 // ─── State ───
 const state = {
-  models: [],
-  selectedModel: '',
   imageFile: null,
-  variants: [],    // array of 12 {hour, label, image_url, img_element}
+  variants: [],    // array of 12 {hour, label, image_url, img_element, index}
   jobId: null,
   generating: false,
 };
@@ -595,59 +532,28 @@ const $uploadScreen = document.getElementById('upload-screen');
 const $dropZone = document.getElementById('drop-zone');
 const $browseBtn = document.getElementById('browse-btn');
 const $fileInput = document.getElementById('file-input');
-const $modelSelect = document.getElementById('model-select');
 const $viewer = document.getElementById('viewer');
 const $imageStack = document.getElementById('image-stack');
 const $progressOverlay = document.getElementById('progress-overlay');
 const $progressFill = document.getElementById('progress-fill');
 const $progressStatus = document.getElementById('progress-status');
-const $progressDots = document.getElementById('progress-dots');
 const $controls = document.getElementById('controls');
 const $timeSlider = document.getElementById('time-slider');
 const $timeDisplay = document.getElementById('time-display');
 const $timePeriod = document.getElementById('time-period');
-const $modelBadge = document.getElementById('model-badge');
 const $btnReset = document.getElementById('btn-reset');
+const $btnUpscale = document.getElementById('btn-upscale');
 const $btnPrompts = document.getElementById('btn-prompts');
 const $promptModal = document.getElementById('prompt-modal');
 const $promptList = document.getElementById('prompt-list');
 const $modalClose = document.getElementById('modal-close');
-
-// ─── Init: Load models ───
-async function loadModels() {
-  try {
-    const resp = await fetch('/api/models');
-    state.models = await resp.json();
-    $modelSelect.innerHTML = '';
-    state.models.forEach(m => {
-      const opt = document.createElement('option');
-      opt.value = m.id;
-      opt.textContent = `${m.name} (~$${m.cost_per_image}/img)`;
-      $modelSelect.appendChild(opt);
-    });
-    if (state.models.length > 0) {
-      state.selectedModel = state.models[0].id;
-    }
-  } catch (e) {
-    console.error('Failed to load models:', e);
-    $modelSelect.innerHTML = '<option disabled>Failed to load models</option>';
-  }
-}
-
-$modelSelect.addEventListener('change', e => {
-  state.selectedModel = e.target.value;
-});
 
 // ─── Upload handling ───
 $browseBtn.addEventListener('click', (e) => {
   e.stopPropagation();
   $fileInput.click();
 });
-$dropZone.addEventListener('click', (e) => {
-  // Don't open file dialog when clicking the model dropdown
-  if (e.target.closest('.model-select-wrapper')) return;
-  $fileInput.click();
-});
+$dropZone.addEventListener('click', () => $fileInput.click());
 $dropZone.addEventListener('dragover', e => { e.preventDefault(); $dropZone.classList.add('dragover'); });
 $dropZone.addEventListener('dragleave', () => $dropZone.classList.remove('dragover'));
 $dropZone.addEventListener('drop', e => {
@@ -661,31 +567,10 @@ $fileInput.addEventListener('change', e => {
 });
 
 async function handleUpload(file) {
-  if (!state.selectedModel) {
-    alert('Please select a model first');
-    return;
-  }
   state.imageFile = file;
-
-  // Switch to viewer
   $uploadScreen.classList.add('hidden');
   $viewer.classList.add('active');
   $progressOverlay.classList.remove('hidden');
-
-  // Update model badge
-  const modelInfo = state.models.find(m => m.id === state.selectedModel);
-  $modelBadge.textContent = modelInfo ? modelInfo.name : state.selectedModel;
-
-  // Init progress dots
-  $progressDots.innerHTML = '';
-  for (let i = 0; i < 12; i++) {
-    const dot = document.createElement('div');
-    dot.className = 'progress-dot pending';
-    dot.textContent = `${7 + i}`;
-    dot.id = `dot-${i}`;
-    $progressDots.appendChild(dot);
-  }
-
   await generateVariants(file);
 }
 
@@ -694,14 +579,9 @@ async function generateVariants(file) {
   $progressStatus.textContent = 'Uploading image and starting generation...';
   $progressFill.style.width = '5%';
 
-  // Mark all as running
-  for (let i = 0; i < 12; i++) {
-    document.getElementById(`dot-${i}`).className = 'progress-dot running';
-  }
-
   const formData = new FormData();
   formData.append('image', file);
-  formData.append('model_id', state.selectedModel);
+  formData.append('model_id', 'gemini');
 
   try {
     const resp = await fetch('/api/generate', {
@@ -718,19 +598,14 @@ async function generateVariants(file) {
     state.jobId = data.job_id;
     state.variants = data.variants;
 
-    // Update progress dots and load images
     let loaded = 0;
     const totalValid = data.variants.filter(v => v.status === 'success').length;
-
     $imageStack.innerHTML = '';
 
     for (let i = 0; i < data.variants.length; i++) {
       const v = data.variants[i];
-      const dot = document.getElementById(`dot-${i}`);
-
+      v.index = i;
       if (v.status === 'success') {
-        dot.className = 'progress-dot done';
-
         const img = document.createElement('img');
         img.src = v.image_url;
         img.dataset.index = i;
@@ -742,17 +617,11 @@ async function generateVariants(file) {
           const pct = 10 + (loaded / totalValid) * 85;
           $progressFill.style.width = `${pct}%`;
           $progressStatus.textContent = `Loading images: ${loaded}/${totalValid}`;
-
-          if (loaded === totalValid) {
-            finishGeneration();
-          }
+          if (loaded === totalValid) finishGeneration();
         };
 
         $imageStack.appendChild(img);
         v.img_element = img;
-      } else {
-        dot.className = 'progress-dot error';
-        dot.title = v.error || 'Failed';
       }
     }
 
@@ -855,6 +724,59 @@ function updateSlider() {
 
 $timeSlider.addEventListener('input', updateSlider);
 
+// ─── Current frame for upscale/download (nearest keyframe to slider) ───
+function getCurrentFrameVariant() {
+  const validVariants = state.variants.filter(v => v.status === 'success' && v.image_url);
+  if (validVariants.length === 0) return null;
+  const val = parseInt($timeSlider.value);
+  const hourFloat = sliderToTime(val);
+  let best = validVariants[0];
+  for (const v of validVariants) {
+    if (v.hour <= hourFloat) best = v;
+    else break;
+  }
+  return best;
+}
+
+function getFilenameFromImageUrl(url) {
+  if (!url) return null;
+  const parts = url.split('/');
+  return parts[parts.length - 1] || null;
+}
+
+// ─── Upscale & download ───
+$btnUpscale.addEventListener('click', async () => {
+  const variant = getCurrentFrameVariant();
+  if (!variant || !state.jobId) {
+    alert('No frame selected. Move the time slider to choose a frame, then try again.');
+    return;
+  }
+  const filename = getFilenameFromImageUrl(variant.image_url);
+  if (!filename) return;
+  const upscaleUrl = `/api/images/${state.jobId}/${filename}/upscale`;
+  try {
+    $btnUpscale.disabled = true;
+    $btnUpscale.textContent = 'Preparing…';
+    const resp = await fetch(upscaleUrl);
+    if (!resp.ok) throw new Error('Upscale failed');
+    const blob = await resp.blob();
+    const disposition = resp.headers.get('Content-Disposition');
+    const match = disposition && disposition.match(/filename="?([^";]+)"?/);
+    const name = (match && match[1]) || filename.replace('.png', '_2x.png');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = name;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) {
+    console.error(e);
+    alert('Download failed. Please try again.');
+  } finally {
+    $btnUpscale.disabled = false;
+    $btnUpscale.textContent = 'Upscale & download';
+  }
+});
+
 // ─── Reset ───
 $btnReset.addEventListener('click', () => {
   state.variants = [];
@@ -891,7 +813,7 @@ $promptModal.addEventListener('click', e => {
 });
 
 // ─── Boot ───
-loadModels();
+// (no model loading; single model only)
 </script>
 </body>
 </html>
