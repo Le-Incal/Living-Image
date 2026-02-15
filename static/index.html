@@ -384,6 +384,33 @@
     color: var(--accent);
   }
 
+  .btn-play {
+    width: 32px;
+    height: 32px;
+    border-radius: 50%;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    color: var(--text);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: border-color 0.2s, color 0.2s, background 0.2s;
+  }
+  .btn-play:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+    background: var(--accent-subtle);
+  }
+  .btn-play svg {
+    width: 14px;
+    height: 14px;
+  }
+  .btn-play.playing {
+    border-color: var(--accent);
+    color: var(--accent);
+  }
+
   .btn-prompts {
     font-size: 11px;
     color: var(--text-dim);
@@ -511,6 +538,10 @@
       <div class="time-header">
         <span class="time-label">Time of Day</span>
         <div class="controls-meta">
+          <button type="button" class="btn-play" id="btn-play" title="Play timelapse" aria-label="Play timelapse">
+            <svg id="play-icon" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+            <svg id="pause-icon" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
+          </button>
           <div class="time-value-group">
             <span class="time-value" id="time-display">12:00</span>
             <span class="time-period" id="time-period">PM</span>
@@ -567,9 +598,11 @@ function escapeHtml(s) {
 // ─── State ───
 const state = {
   imageFile: null,
-  variants: [],    // array of time slots {hour, label, image_url, img_element, index}
+  variants: [],
   jobId: null,
   generating: false,
+  playing: false,
+  playAnimationId: null,
 };
 
 // ─── DOM refs ───
@@ -590,6 +623,9 @@ const $btnReset = document.getElementById('btn-reset');
 const $exportWrap = document.getElementById('export-wrap');
 const $exportTrigger = document.getElementById('export-trigger');
 const $exportMenu = document.getElementById('export-menu');
+const $btnPlay = document.getElementById('btn-play');
+const $playIcon = document.getElementById('play-icon');
+const $pauseIcon = document.getElementById('pause-icon');
 const $btnPrompts = document.getElementById('btn-prompts');
 const $promptModal = document.getElementById('prompt-modal');
 const $promptList = document.getElementById('prompt-list');
@@ -779,7 +815,49 @@ function snapSliderToNearestHour() {
 }
 
 $timeSlider.addEventListener('input', updateSlider);
-$timeSlider.addEventListener('change', snapSliderToNearestHour);
+$timeSlider.addEventListener('change', () => {
+  snapSliderToNearestHour();
+  if (state.playing) stopTimelapse();
+});
+
+const TIMELAPSE_DURATION_MS = 15000; // 8am to 8pm in 15 seconds
+
+function runTimelapse(timestamp) {
+  if (!state.playing) return;
+  if (!state.playStartTime) state.playStartTime = timestamp;
+  const elapsed = timestamp - state.playStartTime;
+  const progress = (elapsed % TIMELAPSE_DURATION_MS) / TIMELAPSE_DURATION_MS; // 0..1, loops
+  const val = Math.round(progress * 1000);
+  $timeSlider.value = val;
+  updateSlider();
+  state.playAnimationId = requestAnimationFrame(runTimelapse);
+}
+
+function startTimelapse() {
+  if (state.variants.filter(v => v.status === 'success' && v.img_element).length === 0) return;
+  state.playing = true;
+  state.playStartTime = null;
+  $btnPlay.classList.add('playing');
+  $playIcon.style.display = 'none';
+  $pauseIcon.style.display = 'block';
+  state.playAnimationId = requestAnimationFrame(runTimelapse);
+}
+
+function stopTimelapse() {
+  state.playing = false;
+  if (state.playAnimationId != null) {
+    cancelAnimationFrame(state.playAnimationId);
+    state.playAnimationId = null;
+  }
+  $btnPlay.classList.remove('playing');
+  $playIcon.style.display = 'block';
+  $pauseIcon.style.display = 'none';
+}
+
+$btnPlay.addEventListener('click', () => {
+  if (state.playing) stopTimelapse();
+  else startTimelapse();
+});
 
 // ─── Current frame for download: nearest hour (snapped position) ───
 function getCurrentFrameVariant() {
