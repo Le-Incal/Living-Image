@@ -523,7 +523,7 @@
   <!-- Progress Overlay -->
   <div id="progress-overlay">
     <div class="progress-content">
-      <div class="progress-title">Generating Living Image.</div>
+      <div class="progress-title">Generating Living Image</div>
       <div class="progress-bar-track">
         <div class="progress-bar-fill" id="progress-fill"></div>
       </div>
@@ -841,6 +841,8 @@ function startTimelapse() {
   if (state.variants.filter(v => v.status === 'success' && v.img_element).length === 0) return;
   state.playing = true;
   state.playStartTime = null;
+  // Start from current slider position so dragging the slider overrides where play begins
+  state.pausedElapsed = (parseInt($timeSlider.value) / 1000) * TIMELAPSE_DURATION_MS;
   $btnPlay.classList.add('playing');
   $playIcon.style.display = 'none';
   $pauseIcon.style.display = 'block';

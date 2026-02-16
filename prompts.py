@@ -39,13 +39,13 @@ DO NOT CHANGE any of these elements:
 - Building geometry, proportions, or structural lines
 - Window positions, sizes, or shapes
 - Material textures, patterns, or surface details
-- Vegetation shapes, positions, or density
+- Vegetation shapes, positions, or density — do not add any trees, plants, shrubs, or vegetation that are not in the original image; empty courtyards and open areas must stay empty
 - Ground materials and layout
 - Camera angle, focal length, and composition
 - Any text, signage, or labels in the image
 - The number or placement of any objects
 
-Preserve the EXACT architectural composition. This is a professional architectural visualization where structural accuracy is critical."""
+Preserve the EXACT architectural composition. Do not add or remove any elements (including trees or plants); only change lighting. This is a professional architectural visualization where structural accuracy is critical."""
 
 
 @dataclass
