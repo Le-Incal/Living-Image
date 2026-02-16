@@ -201,7 +201,7 @@
   /* ── Controls Panel ── */
   #controls {
     position: relative;
-    padding: 0 40px 28px;
+    padding: 0 40px 18px;
     z-index: 10;
     display: none;
   }
@@ -221,15 +221,15 @@
     position: relative;
     background: var(--surface);
     border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 12px 18px 10px;
+    border-radius: 8px;
+    padding: 6px 14px 6px;
   }
 
   .time-header {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 14px;
+    margin-bottom: 4px;
   }
   .time-label {
     font-size: 6px;
@@ -256,7 +256,7 @@
   .controls-meta {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 8px;
   }
   .meta-badge {
     font-size: 11px;
@@ -269,7 +269,7 @@
     letter-spacing: 0.3px;
   }
 
-  .slider-track { height: 32px; display: flex; align-items: center; }
+  .slider-track { height: 20px; display: flex; align-items: center; }
 
   input[type="range"] {
     -webkit-appearance: none; appearance: none;
@@ -298,11 +298,11 @@
   .time-markers {
     display: flex;
     justify-content: space-between;
-    margin-top: 4px;
+    margin-top: 2px;
     padding: 0 2px;
   }
   .time-marker {
-    font-size: 9px;
+    font-size: 8px;
     color: var(--text-dim);
     font-weight: 300;
     letter-spacing: 0.3px;
@@ -314,19 +314,19 @@
     justify-content: space-between;
     align-items: center;
     flex-wrap: wrap;
-    gap: 10px;
-    margin-top: 12px;
-    padding-top: 12px;
+    gap: 6px;
+    margin-top: 6px;
+    padding-top: 6px;
     border-top: 1px solid var(--border);
   }
 
   .btn-reset, .btn-export-trigger {
-    font-size: 12px;
+    font-size: 11px;
     color: var(--text-secondary);
     background: none;
     border: 1px solid var(--border);
-    border-radius: 8px;
-    padding: 5px 14px;
+    border-radius: 6px;
+    padding: 4px 10px;
     cursor: pointer;
     font-family: 'DM Sans', sans-serif;
     transition: all 0.2s;
@@ -385,8 +385,8 @@
   }
 
   .btn-play {
-    width: 32px;
-    height: 32px;
+    width: 26px;
+    height: 26px;
     border-radius: 50%;
     border: 1px solid var(--border);
     background: var(--surface);
@@ -403,8 +403,8 @@
     background: var(--accent-subtle);
   }
   .btn-play svg {
-    width: 14px;
-    height: 14px;
+    width: 12px;
+    height: 12px;
   }
   .btn-play.playing {
     border-color: var(--accent);
@@ -412,7 +412,7 @@
   }
 
   .btn-prompts {
-    font-size: 11px;
+    font-size: 10px;
     color: var(--text-dim);
     background: none;
     border: none;
@@ -822,7 +822,7 @@ $timeSlider.addEventListener('change', () => {
   if (state.playing) stopTimelapse();
 });
 
-const TIMELAPSE_DURATION_MS = 15000; // 8am to 8pm in 15 seconds
+const TIMELAPSE_DURATION_MS = 10000; // 8am to 8pm in 10 seconds
 
 function runTimelapse(timestamp) {
   if (!state.playing) return;
