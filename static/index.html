@@ -735,6 +735,7 @@ function finishGeneration() {
   setTimeout(() => {
     $progressOverlay.classList.add('hidden');
     $controls.classList.add('active');
+    $timeSlider.value = timeToSliderValue(8);
     updateSlider();
   }, 600);
 }
