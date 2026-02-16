@@ -675,8 +675,16 @@ async function generateVariants(file) {
     });
 
     if (!resp.ok) {
-      const err = await resp.json();
-      throw new Error(err.detail || 'Generation failed');
+      let detail = 'Generation failed';
+      try {
+        const err = await resp.json();
+        if (err.detail) {
+          detail = typeof err.detail === 'string' ? err.detail : (Array.isArray(err.detail) ? (err.detail[0]?.msg || err.detail[0] || String(err.detail)) : String(err.detail));
+        }
+      } catch (_) {
+        detail = `Server error (${resp.status})`;
+      }
+      throw new Error(detail);
     }
 
     const data = await resp.json();
