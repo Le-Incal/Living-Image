@@ -86,14 +86,20 @@ async def prompt_preview():
 @app.post("/api/generate")
 async def generate_variants(
     image: UploadFile = File(...),
-    model_id: str = Form("gemini"),
+    model_id: str = Form("nano-banana-2.1"),
 ):
     """
-    Generate 12 relit variants of the uploaded image (Gemini only).
+    Generate relit variants of the uploaded image with the chosen model.
     """
     adapter = registry.get_adapter(model_id)
     if adapter is None:
         raise HTTPException(status_code=400, detail=f"Unknown model: {model_id}")
+    info = adapter.model_info
+    if not info.available:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{info.name} is unavailable: {info.env_key} is not set on the server",
+        )
 
     image_bytes = await image.read()
     mime_type = image.content_type or "image/png"
@@ -152,7 +158,9 @@ async def generate_variants(
 
     return {
         "job_id": job_id,
-        "model": model_id,
+        "model": info.id,
+        "model_name": info.name,
+        "cost_per_image": info.cost_per_image,
         "total": len(slots),
         "success": success_count,
         "errors": len(slots) - success_count,

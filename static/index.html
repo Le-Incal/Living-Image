@@ -484,6 +484,104 @@
   }
   .modal-close:hover { border-color: var(--accent); color: var(--accent); }
 
+  /* ── Model picker ── */
+  .model-picker {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 20px;
+  }
+  .model-picker label {
+    font-size: 10px;
+    letter-spacing: 1.2px;
+    text-transform: uppercase;
+    color: var(--text-dim);
+  }
+  .model-select {
+    appearance: none;
+    -webkit-appearance: none;
+    background: var(--surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%238a8580' fill='none'/%3E%3C/svg%3E") no-repeat right 12px center;
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    padding: 8px 32px 8px 16px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .model-select:hover, .model-select:focus { border-color: var(--accent); outline: none; }
+  .model-select.compact { font-size: 11px; padding: 4px 26px 4px 10px; border-radius: 6px; background-position: right 8px center; }
+  .model-select option:disabled { color: var(--text-dim); }
+  .model-cost {
+    font-size: 11px;
+    color: var(--text-dim);
+    font-weight: 300;
+  }
+
+  /* ── Runs (A/B) and rerender ── */
+  .model-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--border);
+  }
+  .run-tabs { display: flex; flex-wrap: wrap; gap: 4px; }
+  .run-tab {
+    font-size: 11px;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text-secondary);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+  .run-tab .run-letter { color: var(--text-dim); margin-right: 4px; }
+  .run-tab:hover { border-color: var(--border-active); color: var(--text); }
+  .run-tab.active { border-color: var(--accent); color: var(--accent); background: var(--accent-subtle); }
+  .run-tab.active .run-letter { color: var(--accent); }
+  .rerender-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; }
+  .rerender-group .model-select { min-width: 0; flex: 1 1 150px; max-width: 100%; }
+  @media (max-width: 560px) {
+    #controls { padding: 0 12px 12px; }
+    .rerender-group { width: 100%; }
+  }
+  .btn-rerender {
+    font-size: 11px;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--accent);
+    background: var(--accent-subtle);
+    border: 1px solid var(--accent);
+    border-radius: 6px;
+    padding: 4px 10px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.2s;
+  }
+  .btn-rerender:hover { background: rgba(201, 168, 130, 0.18); }
+  .btn-rerender:disabled { opacity: 0.4; cursor: not-allowed; }
+  .progress-dismiss {
+    margin-top: 20px;
+    font-size: 12px;
+    font-family: 'DM Sans', sans-serif;
+    color: var(--text-secondary);
+    background: none;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 14px;
+    cursor: pointer;
+    display: none;
+  }
+  .progress-dismiss.visible { display: inline-block; }
+  .progress-dismiss:hover { border-color: var(--accent); color: var(--accent); }
+
   /* ── Scrollbar ── */
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
@@ -500,6 +598,14 @@
     <p>Upload an architectural render to generate</p>
 
     <div class="upload-config">
+      <div class="model-picker" id="model-picker">
+        <label for="model-select">Model</label>
+        <select class="model-select" id="model-select" aria-label="Image model">
+          <option>Loading models…</option>
+        </select>
+        <span class="model-cost" id="model-cost"></span>
+      </div>
+      <br>
       <div class="browse-cta" id="browse-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M12 5v14M5 12h14"/>
@@ -528,6 +634,7 @@
         <div class="progress-bar-fill" id="progress-fill"></div>
       </div>
       <div class="progress-status" id="progress-status">Preparing your living image</div>
+      <button type="button" class="progress-dismiss" id="progress-dismiss">Back to previous render</button>
     </div>
   </div>
 
@@ -561,6 +668,14 @@
         <span class="time-marker">4</span>
         <span class="time-marker">6</span>
         <span class="time-marker">8 PM</span>
+      </div>
+
+      <div class="model-row">
+        <div class="run-tabs" id="run-tabs" role="tablist" aria-label="Renders by model"></div>
+        <div class="rerender-group">
+          <select class="model-select compact" id="rerender-model-select" aria-label="Model for rerender"></select>
+          <button type="button" class="btn-rerender" id="rerender-btn">Rerender</button>
+        </div>
       </div>
 
       <div class="controls-footer">
@@ -598,8 +713,11 @@ function escapeHtml(s) {
 // ─── State ───
 const state = {
   imageFile: null,
-  variants: [],
-  jobId: null,
+  models: [],        // from /api/models
+  runs: [],          // [{jobId, modelId, modelName, variants}]
+  activeRun: -1,
+  variants: [],      // variants of the active run
+  jobId: null,       // job of the active run (used by exports)
   generating: false,
   playing: false,
   playAnimationId: null,
@@ -632,6 +750,81 @@ const $btnPrompts = document.getElementById('btn-prompts');
 const $promptModal = document.getElementById('prompt-modal');
 const $promptList = document.getElementById('prompt-list');
 const $modalClose = document.getElementById('modal-close');
+const $modelSelect = document.getElementById('model-select');
+const $modelCost = document.getElementById('model-cost');
+const $rerenderSelect = document.getElementById('rerender-model-select');
+const $rerenderBtn = document.getElementById('rerender-btn');
+const $runTabs = document.getElementById('run-tabs');
+const $progressDismiss = document.getElementById('progress-dismiss');
+
+// ─── Models ───
+let FRAMES_PER_RENDER = 13;
+
+function modelById(id) {
+  return state.models.find(m => m.id === id);
+}
+
+function renderCost(model) {
+  return model ? `≈ $${(model.cost_per_image * FRAMES_PER_RENDER).toFixed(2)}` : '';
+}
+
+function fillModelSelect($sel, selectedId) {
+  $sel.innerHTML = '';
+  for (const m of state.models) {
+    const opt = document.createElement('option');
+    opt.value = m.id;
+    opt.disabled = !m.available;
+    opt.textContent = m.available
+      ? `${m.name}  ·  ${renderCost(m)}`
+      : `${m.name}  ·  key not set`;
+    $sel.appendChild(opt);
+  }
+  const fallback = state.models.find(m => m.available && m.default)
+    || state.models.find(m => m.available);
+  const chosen = modelById(selectedId)?.available ? selectedId : fallback?.id;
+  if (chosen) $sel.value = chosen;
+}
+
+function updateLandingCost() {
+  const m = modelById($modelSelect.value);
+  $modelCost.textContent = m && m.available
+    ? `${FRAMES_PER_RENDER} frames per render, ${renderCost(m)}`
+    : 'No model available. Set an API key on the server.';
+}
+
+function updateRerenderButton() {
+  const m = modelById($rerenderSelect.value);
+  $rerenderBtn.disabled = !m || !m.available || state.generating;
+  $rerenderBtn.textContent = m ? `Rerender ${renderCost(m)}` : 'Rerender';
+}
+
+async function loadModels() {
+  try {
+    const [modelsResp, slotsResp] = await Promise.all([
+      fetch('/api/models'), fetch('/api/time-slots'),
+    ]);
+    state.models = await modelsResp.json();
+    const slots = await slotsResp.json();
+    if (Array.isArray(slots) && slots.length) FRAMES_PER_RENDER = slots.length;
+  } catch (e) {
+    console.error('Failed to load models:', e);
+    state.models = [];
+  }
+  fillModelSelect($modelSelect);
+  fillModelSelect($rerenderSelect);
+  updateLandingCost();
+  updateRerenderButton();
+}
+
+// Keep clicks on the picker from opening the file dialog
+['click', 'mousedown'].forEach(evt =>
+  document.getElementById('model-picker').addEventListener(evt, e => e.stopPropagation()));
+$modelSelect.addEventListener('change', () => {
+  updateLandingCost();
+  fillModelSelect($rerenderSelect, $modelSelect.value);
+  updateRerenderButton();
+});
+$rerenderSelect.addEventListener('change', updateRerenderButton);
 
 // ─── Upload handling ───
 $browseBtn.addEventListener('click', (e) => {
@@ -652,21 +845,53 @@ $fileInput.addEventListener('change', e => {
 });
 
 async function handleUpload(file) {
+  const modelId = $modelSelect.value;
+  if (!modelById(modelId)?.available) {
+    $modelCost.textContent = 'Pick an available model first.';
+    $fileInput.value = '';
+    return;
+  }
   state.imageFile = file;
   $uploadScreen.classList.add('hidden');
   $viewer.classList.add('active');
   $progressOverlay.classList.remove('hidden');
-  await generateVariants(file);
+  fillModelSelect($rerenderSelect, modelId);
+  await generateVariants(file, modelId);
 }
 
-async function generateVariants(file) {
+function showProgress(modelName) {
+  if (state.playing) stopTimelapse();
+  $progressDismiss.classList.remove('visible');
+  $progressOverlay.classList.remove('hidden');
+  document.querySelector('.progress-title').textContent = `Rendering with ${modelName}`;
+}
+
+function failGeneration(htmlOrText, isHtml = false) {
+  state.generating = false;
+  if (isHtml) $progressStatus.innerHTML = htmlOrText;
+  else $progressStatus.textContent = htmlOrText;
+  // If we already have a render, let the user go back to it
+  if (state.runs.length > 0) $progressDismiss.classList.add('visible');
+  updateRerenderButton();
+}
+
+$progressDismiss.addEventListener('click', () => {
+  $progressOverlay.classList.add('hidden');
+  $controls.classList.add('active');
+  setActiveRun(state.activeRun);
+});
+
+async function generateVariants(file, modelId) {
+  const model = modelById(modelId);
   state.generating = true;
+  updateRerenderButton();
+  showProgress(model ? model.name : modelId);
   $progressStatus.textContent = 'Uploading image and starting generation...';
   $progressFill.style.width = '5%';
 
   const formData = new FormData();
   formData.append('image', file);
-  formData.append('model_id', 'gemini');
+  formData.append('model_id', modelId);
 
   try {
     const resp = await fetch('/api/generate', {
@@ -688,65 +913,108 @@ async function generateVariants(file) {
     }
 
     const data = await resp.json();
-    state.jobId = data.job_id;
-    state.variants = data.variants;
-
-    let loaded = 0;
+    data.variants.forEach((v, i) => { v.index = i; });
     const totalValid = data.variants.filter(v => v.status === 'success').length;
-    $imageStack.innerHTML = '';
 
-    for (let i = 0; i < data.variants.length; i++) {
-      const v = data.variants[i];
-      v.index = i;
-      if (v.status === 'success') {
-        const img = document.createElement('img');
-        img.src = v.image_url;
-        img.dataset.index = i;
-        img.dataset.hour = v.hour;
-        img.alt = v.label;
-
-        img.onload = () => {
-          loaded++;
-          const pct = 10 + (loaded / totalValid) * 85;
-          $progressFill.style.width = `${pct}%`;
-          $progressStatus.textContent = `Loading images: ${loaded}/${totalValid}`;
-          if (loaded === totalValid) finishGeneration();
-        };
-
-        $imageStack.appendChild(img);
-        v.img_element = img;
-      }
+    if (totalValid === 0) {
+      const firstError = data.variants.find(v => v.error);
+      const errDetail = firstError ? firstError.error : 'Unknown error';
+      failGeneration('All generations failed. Check API keys and try again.<br><span style="color: var(--error); font-size: 12px; display: block; margin-top: 8px; max-width: 360px; margin-left: auto; margin-right: auto;">' + escapeHtml(errDetail) + '</span>', true);
+      return;
     }
 
     $progressFill.style.width = '95%';
     $progressStatus.textContent = `Generated ${data.success}/${data.total} frames. Loading...`;
 
-    if (totalValid === 0) {
-      const firstError = data.variants.find(v => v.error);
-      const errDetail = firstError ? firstError.error : 'Unknown error';
-      $progressStatus.innerHTML = 'All generations failed. Check API keys and try again.<br><span style="color: var(--error); font-size: 12px; display: block; margin-top: 8px; max-width: 360px; margin-left: auto; margin-right: auto;">' + escapeHtml(errDetail) + '</span>';
-      state.generating = false;
-    }
+    state.runs.push({
+      jobId: data.job_id,
+      modelId: data.model,
+      modelName: data.model_name || data.model,
+      variants: data.variants,
+    });
+    const keepHour = state.runs.length > 1 ? sliderToTime(parseInt($timeSlider.value)) : 8;
+    setActiveRun(state.runs.length - 1, (loaded) => {
+      const pct = 10 + (loaded / totalValid) * 85;
+      $progressFill.style.width = `${pct}%`;
+      $progressStatus.textContent = `Loading images: ${loaded}/${totalValid}`;
+      if (loaded === totalValid) finishGeneration(keepHour);
+    });
 
   } catch (e) {
     console.error('Generation error:', e);
-    $progressStatus.textContent = `Error: ${e.message}`;
-    state.generating = false;
+    failGeneration(`Error: ${e.message}`);
   }
 }
 
-function finishGeneration() {
+// Build the image stack for a run and make it the active one
+function setActiveRun(index, onImageLoad) {
+  const run = state.runs[index];
+  if (!run) return;
+  state.activeRun = index;
+  state.jobId = run.jobId;
+  state.variants = run.variants;
+  $imageStack.innerHTML = '';
+  let loaded = 0;
+  for (const v of run.variants) {
+    v.img_element = null;
+    if (v.status !== 'success') continue;
+    const img = document.createElement('img');
+    img.dataset.index = v.index;
+    img.dataset.hour = v.hour;
+    img.alt = `${v.label} (${run.modelName})`;
+    if (onImageLoad) img.onload = () => onImageLoad(++loaded);
+    img.src = v.image_url;
+    $imageStack.appendChild(img);
+    v.img_element = img;
+  }
+  renderRunTabs();
+  updateSlider();
+}
+
+function renderRunTabs() {
+  $runTabs.innerHTML = '';
+  state.runs.forEach((run, i) => {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = 'run-tab' + (i === state.activeRun ? ' active' : '');
+    btn.setAttribute('role', 'tab');
+    btn.setAttribute('aria-selected', i === state.activeRun);
+    btn.innerHTML = `<span class="run-letter">${String.fromCharCode(65 + (i % 26))}</span>${escapeHtml(run.modelName)}`;
+    btn.title = 'Show this render (keyboard: [ and ] to flip)';
+    btn.addEventListener('click', () => { if (!state.generating) setActiveRun(i); });
+    $runTabs.appendChild(btn);
+  });
+}
+
+function finishGeneration(hour = 8) {
   state.generating = false;
+  updateRerenderButton();
   $progressFill.style.width = '100%';
   $progressStatus.textContent = 'Complete!';
 
   setTimeout(() => {
     $progressOverlay.classList.add('hidden');
     $controls.classList.add('active');
-    $timeSlider.value = timeToSliderValue(8);
+    $timeSlider.value = timeToSliderValue(hour);
     updateSlider();
   }, 600);
 }
+
+// ─── Rerender with another model ───
+$rerenderBtn.addEventListener('click', async () => {
+  if (!state.imageFile || state.generating) return;
+  const modelId = $rerenderSelect.value;
+  if (!modelById(modelId)?.available) return;
+  await generateVariants(state.imageFile, modelId);
+});
+
+// Flip between renders with [ and ] for quick A/B
+document.addEventListener('keydown', e => {
+  if (state.generating || state.runs.length < 2) return;
+  if (e.target.tagName === 'SELECT' || e.target.tagName === 'INPUT' && e.target.type !== 'range') return;
+  if (e.key === ']') setActiveRun((state.activeRun + 1) % state.runs.length);
+  if (e.key === '[') setActiveRun((state.activeRun - 1 + state.runs.length) % state.runs.length);
+});
 
 // ─── Slider and crossfade (unchanged). Snap to nearest hour on release only. ───
 function sliderToTime(value) {
@@ -969,10 +1237,16 @@ $exportMenu.querySelector('[data-export="gif"]').addEventListener('click', () =>
 
 // ─── Reset ───
 $btnReset.addEventListener('click', () => {
+  if (state.playing) stopTimelapse();
+  state.runs = [];
+  state.activeRun = -1;
   state.variants = [];
   state.jobId = null;
   state.imageFile = null;
   $imageStack.innerHTML = '';
+  $runTabs.innerHTML = '';
+  $progressDismiss.classList.remove('visible');
+  $progressFill.style.width = '0%';
   $viewer.classList.remove('active');
   $controls.classList.remove('active');
   $progressOverlay.classList.remove('hidden');
@@ -1003,7 +1277,7 @@ $promptModal.addEventListener('click', e => {
 });
 
 // ─── Boot ───
-// (no model loading; single model only)
+loadModels();
 </script>
 </body>
 </html>

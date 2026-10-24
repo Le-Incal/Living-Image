@@ -1,26 +1,32 @@
 """
-Gemini (Nano Banana) adapter for image relighting.
+Gemini (Nano Banana family) adapter for image relighting.
 
-Uses the Gemini 2.5 Flash Image model via Google's genai SDK.
+Calls generateContent on the configured Gemini image model.
+The API key is sent in the x-goog-api-key header, never in the URL.
 """
 
-import os
 import base64
+import os
+
 import httpx
-from .base import BaseAdapter, ModelInfo
+
+from .base import BaseAdapter, CatalogEntry, ModelInfo, default_entry
+
+ENV_KEY = "GEMINI_API_KEY"
+API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 
 class GeminiAdapter(BaseAdapter):
 
-    API_URL = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image:generateContent"
+    def __init__(self, entry: CatalogEntry | None = None):
+        self.entry = entry or default_entry("gemini")
 
     @property
     def model_info(self) -> ModelInfo:
+        e = self.entry
         return ModelInfo(
-            id="gemini",
-            name="Nano Banana (Gemini 2.5 Flash Image)",
-            provider="gemini",
-            cost_per_image=0.039,
+            id=e.id, name=e.name, provider="gemini", cost_per_image=e.cost_per_image,
+            api_model=e.api_model, env_key=ENV_KEY, default=e.default,
         )
 
     async def edit_image(
@@ -29,51 +35,41 @@ class GeminiAdapter(BaseAdapter):
         prompt: str,
         mime_type: str = "image/png",
     ) -> bytes:
-        api_key = os.environ.get("GEMINI_API_KEY", "")
+        api_key = os.environ.get(ENV_KEY, "")
         if not api_key:
-            raise ValueError("GEMINI_API_KEY environment variable not set")
-
-        b64_image = base64.b64encode(image_bytes).decode("utf-8")
+            raise ValueError(f"{ENV_KEY} environment variable not set")
 
         payload = {
             "contents": [
                 {
                     "parts": [
-                        {
-                            "inlineData": {
-                                "mimeType": mime_type,
-                                "data": b64_image,
-                            }
-                        },
-                        {
-                            "text": prompt,
-                        },
+                        {"inlineData": {
+                            "mimeType": mime_type,
+                            "data": base64.b64encode(image_bytes).decode("utf-8"),
+                        }},
+                        {"text": prompt},
                     ]
                 }
             ],
-            "generationConfig": {
-                "responseModalities": ["TEXT", "IMAGE"],
-            },
+            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
         }
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             resp = await client.post(
-                f"{self.API_URL}?key={api_key}",
+                f"{API_BASE}/{self.entry.api_model}:generateContent",
                 json=payload,
-                headers={"Content-Type": "application/json"},
+                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
             )
-            resp.raise_for_status()
+            if resp.is_error:
+                raise RuntimeError(f"Gemini {resp.status_code}: {resp.text[:300]}")
             data = resp.json()
 
-        # Extract the image from the response
         candidates = data.get("candidates", [])
         if not candidates:
             raise RuntimeError("No candidates in Gemini response")
 
-        parts = candidates[0].get("content", {}).get("parts", [])
-        for part in parts:
+        for part in candidates[0].get("content", {}).get("parts", []):
             if "inlineData" in part:
-                img_data = part["inlineData"]["data"]
-                return base64.b64decode(img_data)
+                return base64.b64decode(part["inlineData"]["data"])
 
         raise RuntimeError("No image found in Gemini response")
