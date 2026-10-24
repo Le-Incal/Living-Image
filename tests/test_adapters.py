@@ -61,9 +61,9 @@ class TestAdapterRegistry:
 
     def test_gemini_model_info_is_complete(self):
         reg = AdapterRegistry()
-        adapter = reg.get_adapter("gemini")
+        adapter = reg.get_adapter("gemini")  # legacy alias -> default Gemini model
         info = adapter.model_info
-        assert info.id == "gemini"
+        assert info.id == "nano-banana-2.1"
         assert info.provider == "gemini"
         assert info.cost_per_image > 0
         assert len(info.name) > 0
