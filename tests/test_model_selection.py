@@ -255,3 +255,26 @@ class TestGrokKeyAlias:
 
     def test_keys_check_reports_grok_key(self, client):
         assert "GROK_API_KEY" in client.get("/api/keys-check").json()
+
+
+class TestControlsLayout:
+
+    def _section(self, start_marker, end_marker):
+        s = INDEX.index(start_marker)
+        return INDEX[s:INDEX.index(end_marker, s)]
+
+    def test_rerender_controls_share_row_with_new_image(self):
+        footer = self._section('class="controls-footer"', 'id="btn-prompts"')
+        assert 'id="btn-reset"' in footer
+        assert 'id="rerender-model-select"' in footer
+        assert 'id="rerender-btn"' in footer
+
+    def test_run_tabs_have_their_own_row(self):
+        row = self._section('class="model-row"', 'class="controls-footer"')
+        assert 'id="run-tabs"' in row
+        assert 'id="rerender-btn"' not in row
+
+    def test_panel_wide_enough_for_five_tabs(self):
+        import re
+        m = re.search(r"\.controls-inner\s*\{[^}]*max-width:\s*(\d+)px", INDEX)
+        assert m and int(m.group(1)) >= 760

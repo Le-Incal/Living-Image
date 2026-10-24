@@ -216,7 +216,7 @@
   }
 
   .controls-inner {
-    max-width: 680px;
+    max-width: 780px;
     margin: 0 auto;
     position: relative;
     background: var(--surface);
@@ -596,12 +596,16 @@
   .run-tab:hover { border-color: var(--border-active); color: var(--text); }
   .run-tab.active { border-color: var(--accent); color: var(--accent); background: var(--accent-subtle); }
   .run-tab.active .run-letter { color: var(--accent); }
-  .rerender-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; }
-  .rerender-group .ms { flex: 1 1 200px; min-width: 0; }
+  .footer-left, .footer-right { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  .footer-right { gap: 14px; }
+  .rerender-group { display: flex; align-items: center; gap: 6px; max-width: 100%; }
+  .rerender-group .ms { flex: 0 1 210px; min-width: 0; }
   .rerender-group .ms-trigger { width: 100%; min-width: 0; }
   @media (max-width: 560px) {
     #controls { padding: 0 12px 12px; }
-    .rerender-group { width: 100%; }
+    .footer-left { width: 100%; }
+    .rerender-group { flex: 1; }
+    .rerender-group .ms { flex: 1 1 auto; }
   }
   .btn-rerender {
     font-size: 11px;
@@ -720,14 +724,17 @@
 
       <div class="model-row">
         <div class="run-tabs" id="run-tabs" role="tablist" aria-label="Renders by model"></div>
-        <div class="rerender-group">
-          <select class="model-select compact" id="rerender-model-select" aria-label="Model for rerender"></select>
-          <button type="button" class="btn-rerender" id="rerender-btn">Rerender</button>
-        </div>
       </div>
 
       <div class="controls-footer">
-        <button class="btn-reset" id="btn-reset">New image</button>
+        <div class="footer-left">
+          <button class="btn-reset" id="btn-reset">New image</button>
+          <div class="rerender-group">
+            <select class="model-select compact" id="rerender-model-select" aria-label="Model for rerender"></select>
+            <button type="button" class="btn-rerender" id="rerender-btn">Rerender</button>
+          </div>
+        </div>
+        <div class="footer-right">
         <div class="export-wrap" id="export-wrap">
           <button type="button" class="btn-export-trigger" id="export-trigger">Export</button>
           <div class="export-menu" id="export-menu">
@@ -736,6 +743,7 @@
           </div>
         </div>
         <button class="btn-prompts" id="btn-prompts">View prompts</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1429,7 +1437,7 @@ $promptModal.addEventListener('click', e => {
 
 // ─── Boot ───
 enhanceSelect($modelSelect);
-enhanceSelect($rerenderSelect, { compact: true, up: true, alignRight: true });
+enhanceSelect($rerenderSelect, { compact: true, up: true });
 loadModels();
 </script>
 </body>
