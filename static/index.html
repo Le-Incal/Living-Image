@@ -510,6 +510,58 @@
   .model-select:hover, .model-select:focus { border-color: var(--accent); outline: none; }
   .model-select.compact { font-size: 11px; padding: 4px 26px 4px 10px; border-radius: 6px; background-position: right 8px center; }
   .model-select option:disabled { color: var(--text-dim); }
+  /* Custom dropdown (native <select> menus can't lay out a price column) */
+  .ms { position: relative; display: inline-block; }
+  .ms-native { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .ms-trigger {
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+    min-width: 240px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    color: var(--text);
+    font-family: 'DM Sans', sans-serif;
+    font-size: 13px;
+    padding: 8px 14px 8px 16px;
+    cursor: pointer;
+    transition: border-color 0.2s;
+  }
+  .ms-trigger:hover, .ms-trigger:focus-visible, .ms.open .ms-trigger { border-color: var(--accent); outline: none; }
+  .ms-trigger svg { width: 10px; height: 6px; flex: none; opacity: 0.6; }
+  .ms.open .ms-trigger svg { transform: scaleY(-1); }
+  .ms.compact .ms-trigger { min-width: 200px; font-size: 11px; padding: 4px 10px; border-radius: 6px; }
+  .ms-menu {
+    display: none;
+    position: absolute; left: 0; top: calc(100% + 6px);
+    min-width: 100%; width: max-content; max-width: min(360px, calc(100vw - 32px));
+    margin: 0; padding: 5px; list-style: none;
+    background: var(--surface-raised);
+    border: 1px solid var(--border-active);
+    border-radius: 10px;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.5);
+    z-index: 300;
+    text-align: left;
+  }
+  .ms.up .ms-menu { top: auto; bottom: calc(100% + 6px); }
+  .ms.align-right .ms-menu { left: auto; right: 0; }
+  .ms.open .ms-menu { display: block; }
+  .ms-option {
+    display: grid; grid-template-columns: 14px 1fr auto; align-items: center; gap: 8px;
+    padding: 7px 10px; border-radius: 6px;
+    font-size: 13px; color: var(--text); cursor: pointer; white-space: nowrap;
+  }
+  .ms.compact .ms-option { font-size: 12px; padding: 6px 9px; }
+  .ms-option .ms-check { color: var(--accent); font-size: 11px; visibility: hidden; }
+  .ms-option[aria-selected="true"] .ms-check { visibility: visible; }
+  .ms-option .ms-price {
+    color: var(--text-secondary); font-variant-numeric: tabular-nums;
+    text-align: right; padding-left: 24px; font-size: 0.92em;
+  }
+  .ms-option.active { background: var(--accent-subtle); }
+  .ms-option.active .ms-price { color: var(--accent); }
+  .ms-option[aria-disabled="true"] { color: var(--text-dim); cursor: not-allowed; }
+  .ms-option[aria-disabled="true"] .ms-price { color: var(--text-dim); }
+
   .model-note:empty { display: none; }
   .model-note {
     font-size: 11px;
@@ -545,7 +597,8 @@
   .run-tab.active { border-color: var(--accent); color: var(--accent); background: var(--accent-subtle); }
   .run-tab.active .run-letter { color: var(--accent); }
   .rerender-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; max-width: 100%; }
-  .rerender-group .model-select { min-width: 0; flex: 1 1 150px; max-width: 100%; }
+  .rerender-group .ms { flex: 1 1 200px; min-width: 0; }
+  .rerender-group .ms-trigger { width: 100%; min-width: 0; }
   @media (max-width: 560px) {
     #controls { padding: 0 12px 12px; }
     .rerender-group { width: 100%; }
@@ -753,8 +806,121 @@ const $runTabs = document.getElementById('run-tabs');
 const $progressDismiss = document.getElementById('progress-dismiss');
 
 // ─── Models ───
+let FRAMES_PER_RENDER = 13;
+
 function modelById(id) {
   return state.models.find(m => m.id === id);
+}
+
+function priceLabel(m) {
+  if (!m) return '';
+  if (!m.available) return 'unavailable';
+  return `$${(m.cost_per_image * FRAMES_PER_RENDER).toFixed(2)}`;
+}
+
+// ─── Custom dropdown: name left, price per render right ───
+// The native <select> stays as the source of truth; this is the visual layer.
+const CHEVRON = '<svg viewBox="0 0 10 6" fill="none" stroke="currentColor"><path d="M1 1l4 4 4-4"/></svg>';
+
+function enhanceSelect($sel, { compact = false, up = false, alignRight = false } = {}) {
+  const wrap = document.createElement('div');
+  wrap.className = 'ms' + (compact ? ' compact' : '') + (up ? ' up' : '') + (alignRight ? ' align-right' : '');
+  $sel.parentNode.insertBefore(wrap, $sel);
+  wrap.appendChild($sel);
+  $sel.classList.add('ms-native');
+  $sel.tabIndex = -1;
+  $sel.setAttribute('aria-hidden', 'true');
+
+  const trigger = document.createElement('button');
+  trigger.type = 'button';
+  trigger.className = 'ms-trigger';
+  trigger.setAttribute('aria-haspopup', 'listbox');
+  trigger.setAttribute('aria-expanded', 'false');
+  trigger.setAttribute('aria-label', $sel.getAttribute('aria-label') || 'Model');
+  const menu = document.createElement('ul');
+  menu.className = 'ms-menu';
+  menu.setAttribute('role', 'listbox');
+  menu.id = $sel.id + '-listbox';
+  trigger.setAttribute('aria-controls', menu.id);
+  wrap.append(trigger, menu);
+
+  let activeIdx = -1;
+  const items = () => [...menu.querySelectorAll('.ms-option')];
+  const enabled = () => items().filter(li => li.getAttribute('aria-disabled') !== 'true');
+
+  function setActive(li) {
+    items().forEach(x => x.classList.toggle('active', x === li));
+    activeIdx = items().indexOf(li);
+    if (li) li.scrollIntoView({ block: 'nearest' });
+  }
+  function open() {
+    if (wrap.classList.contains('open') || trigger.disabled) return;
+    document.querySelectorAll('.ms.open').forEach(o => o !== wrap && o._close());
+    wrap.classList.add('open');
+    trigger.setAttribute('aria-expanded', 'true');
+    setActive(items().find(li => li.dataset.value === $sel.value) || enabled()[0]);
+  }
+  function close() {
+    wrap.classList.remove('open');
+    trigger.setAttribute('aria-expanded', 'false');
+  }
+  wrap._close = close;
+  function choose(li) {
+    if (!li || li.getAttribute('aria-disabled') === 'true') return;
+    if ($sel.value !== li.dataset.value) {
+      $sel.value = li.dataset.value;
+      $sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    sync();
+    close();
+    trigger.focus();
+  }
+  function move(dir) {
+    const list = enabled();
+    if (!list.length) return;
+    const cur = list.indexOf(items()[activeIdx]);
+    setActive(list[(cur + dir + list.length) % list.length]);
+  }
+
+  function sync() {
+    menu.innerHTML = '';
+    for (const opt of $sel.options) {
+      const m = modelById(opt.value);
+      const li = document.createElement('li');
+      li.className = 'ms-option';
+      li.setAttribute('role', 'option');
+      li.dataset.value = opt.value;
+      li.setAttribute('aria-selected', String(opt.value === $sel.value));
+      if (opt.disabled) li.setAttribute('aria-disabled', 'true');
+      li.innerHTML = `<span class="ms-check">✓</span><span class="ms-name">${escapeHtml(m ? m.name : opt.textContent)}</span><span class="ms-price">${escapeHtml(priceLabel(m))}</span>`;
+      li.addEventListener('mousemove', () => li.getAttribute('aria-disabled') !== 'true' && setActive(li));
+      li.addEventListener('click', e => { e.stopPropagation(); choose(li); });
+      menu.appendChild(li);
+    }
+    const cur = modelById($sel.value);
+    trigger.innerHTML = `<span class="ms-name">${escapeHtml(cur ? cur.name : ($sel.selectedOptions[0]?.textContent || ''))}</span>${CHEVRON}`;
+    trigger.disabled = !state.models.some(m => m.available);
+  }
+  $sel._syncCustom = sync;
+
+  trigger.addEventListener('click', e => {
+    e.stopPropagation();
+    wrap.classList.contains('open') ? close() : open();
+  });
+  trigger.addEventListener('keydown', e => {
+    const isOpen = wrap.classList.contains('open');
+    if (['ArrowDown', 'ArrowUp'].includes(e.key)) {
+      e.preventDefault();
+      if (!isOpen) open(); else move(e.key === 'ArrowDown' ? 1 : -1);
+    } else if (['Enter', ' '].includes(e.key) && isOpen) {
+      e.preventDefault(); choose(items()[activeIdx]);
+    } else if (e.key === 'Escape' || e.key === 'Tab') {
+      close();
+    }
+  });
+  ['click', 'mousedown'].forEach(evt => wrap.addEventListener(evt, e => e.stopPropagation()));
+  document.addEventListener('click', close);
+  sync();
 }
 
 function fillModelSelect($sel, selectedId) {
@@ -770,6 +936,7 @@ function fillModelSelect($sel, selectedId) {
     || state.models.find(m => m.available);
   const chosen = modelById(selectedId)?.available ? selectedId : fallback?.id;
   if (chosen) $sel.value = chosen;
+  if ($sel._syncCustom) $sel._syncCustom();
 }
 
 function updateLandingNote() {
@@ -784,7 +951,12 @@ function updateRerenderButton() {
 
 async function loadModels() {
   try {
-    state.models = await (await fetch('/api/models')).json();
+    const [modelsResp, slotsResp] = await Promise.all([
+      fetch('/api/models'), fetch('/api/time-slots'),
+    ]);
+    state.models = await modelsResp.json();
+    const slots = await slotsResp.json();
+    if (Array.isArray(slots) && slots.length) FRAMES_PER_RENDER = slots.length;
   } catch (e) {
     console.error('Failed to load models:', e);
     state.models = [];
@@ -1256,6 +1428,8 @@ $promptModal.addEventListener('click', e => {
 });
 
 // ─── Boot ───
+enhanceSelect($modelSelect);
+enhanceSelect($rerenderSelect, { compact: true, up: true, alignRight: true });
 loadModels();
 </script>
 </body>

@@ -221,10 +221,19 @@ class TestFrontend:
 
 class TestLandingLayout:
 
-    def test_no_pricing_or_model_label_in_ui(self):
-        assert "renderCost" not in INDEX
+    def test_no_model_label_or_cost_line(self):
         assert 'id="model-cost"' not in INDEX
         assert '<label for="model-select">' not in INDEX
+
+    def test_price_shown_right_aligned_inside_dropdown(self):
+        # Custom dropdown renders name + price columns per option
+        assert "ms-name" in INDEX and "ms-price" in INDEX
+        assert 'role="listbox"' in INDEX or "'listbox'" in INDEX
+
+    def test_native_selects_kept_as_value_source(self):
+        # Hidden native selects stay so form logic and a11y fallbacks work
+        assert 'id="model-select"' in INDEX
+        assert 'id="rerender-model-select"' in INDEX
 
     def test_model_picker_sits_below_upload(self):
         assert INDEX.index('id="browse-btn"') < INDEX.index('id="model-select"')
