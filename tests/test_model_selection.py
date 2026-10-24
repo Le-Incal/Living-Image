@@ -217,3 +217,14 @@ class TestFrontend:
 
     def test_frontend_loads_models_from_api(self):
         assert "/api/models" in INDEX
+
+
+class TestLandingLayout:
+
+    def test_no_pricing_or_model_label_in_ui(self):
+        assert "renderCost" not in INDEX
+        assert 'id="model-cost"' not in INDEX
+        assert '<label for="model-select">' not in INDEX
+
+    def test_model_picker_sits_below_upload(self):
+        assert INDEX.index('id="browse-btn"') < INDEX.index('id="model-select"')

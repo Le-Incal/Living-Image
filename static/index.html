@@ -485,18 +485,14 @@
   .modal-close:hover { border-color: var(--accent); color: var(--accent); }
 
   /* ── Model picker ── */
+  #upload-screen { flex-direction: column; }
   .model-picker {
-    display: inline-flex;
+    display: flex;
     flex-direction: column;
     align-items: center;
     gap: 6px;
-    margin-bottom: 20px;
-  }
-  .model-picker label {
-    font-size: 10px;
-    letter-spacing: 1.2px;
-    text-transform: uppercase;
-    color: var(--text-dim);
+    margin-top: -40px;  /* tuck under the drop zone's bottom padding */
+    position: relative;
   }
   .model-select {
     appearance: none;
@@ -514,7 +510,8 @@
   .model-select:hover, .model-select:focus { border-color: var(--accent); outline: none; }
   .model-select.compact { font-size: 11px; padding: 4px 26px 4px 10px; border-radius: 6px; background-position: right 8px center; }
   .model-select option:disabled { color: var(--text-dim); }
-  .model-cost {
+  .model-note:empty { display: none; }
+  .model-note {
     font-size: 11px;
     color: var(--text-dim);
     font-weight: 300;
@@ -598,14 +595,6 @@
     <p>Upload an architectural render to generate</p>
 
     <div class="upload-config">
-      <div class="model-picker" id="model-picker">
-        <label for="model-select">Model</label>
-        <select class="model-select" id="model-select" aria-label="Image model">
-          <option>Loading models…</option>
-        </select>
-        <span class="model-cost" id="model-cost"></span>
-      </div>
-      <br>
       <div class="browse-cta" id="browse-btn">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path d="M12 5v14M5 12h14"/>
@@ -616,6 +605,12 @@
 
     <p class="upload-format-note">PNG, JPG up to 20MB</p>
     <input type="file" id="file-input" accept="image/*">
+  </div>
+  <div class="model-picker" id="model-picker">
+    <select class="model-select" id="model-select" aria-label="Image model">
+      <option>Loading models…</option>
+    </select>
+    <span class="model-note" id="model-note"></span>
   </div>
 </div>
 
@@ -751,21 +746,15 @@ const $promptModal = document.getElementById('prompt-modal');
 const $promptList = document.getElementById('prompt-list');
 const $modalClose = document.getElementById('modal-close');
 const $modelSelect = document.getElementById('model-select');
-const $modelCost = document.getElementById('model-cost');
+const $modelNote = document.getElementById('model-note');
 const $rerenderSelect = document.getElementById('rerender-model-select');
 const $rerenderBtn = document.getElementById('rerender-btn');
 const $runTabs = document.getElementById('run-tabs');
 const $progressDismiss = document.getElementById('progress-dismiss');
 
 // ─── Models ───
-let FRAMES_PER_RENDER = 13;
-
 function modelById(id) {
   return state.models.find(m => m.id === id);
-}
-
-function renderCost(model) {
-  return model ? `≈ $${(model.cost_per_image * FRAMES_PER_RENDER).toFixed(2)}` : '';
 }
 
 function fillModelSelect($sel, selectedId) {
@@ -774,9 +763,7 @@ function fillModelSelect($sel, selectedId) {
     const opt = document.createElement('option');
     opt.value = m.id;
     opt.disabled = !m.available;
-    opt.textContent = m.available
-      ? `${m.name}  ·  ${renderCost(m)}`
-      : `${m.name}  ·  key not set`;
+    opt.textContent = m.available ? m.name : `${m.name} (unavailable)`;
     $sel.appendChild(opt);
   }
   const fallback = state.models.find(m => m.available && m.default)
@@ -785,34 +772,26 @@ function fillModelSelect($sel, selectedId) {
   if (chosen) $sel.value = chosen;
 }
 
-function updateLandingCost() {
+function updateLandingNote() {
   const m = modelById($modelSelect.value);
-  $modelCost.textContent = m && m.available
-    ? `${FRAMES_PER_RENDER} frames per render, ${renderCost(m)}`
-    : 'No model available. Set an API key on the server.';
+  $modelNote.textContent = m && m.available ? '' : 'No model available. Set an API key on the server.';
 }
 
 function updateRerenderButton() {
   const m = modelById($rerenderSelect.value);
   $rerenderBtn.disabled = !m || !m.available || state.generating;
-  $rerenderBtn.textContent = m ? `Rerender ${renderCost(m)}` : 'Rerender';
 }
 
 async function loadModels() {
   try {
-    const [modelsResp, slotsResp] = await Promise.all([
-      fetch('/api/models'), fetch('/api/time-slots'),
-    ]);
-    state.models = await modelsResp.json();
-    const slots = await slotsResp.json();
-    if (Array.isArray(slots) && slots.length) FRAMES_PER_RENDER = slots.length;
+    state.models = await (await fetch('/api/models')).json();
   } catch (e) {
     console.error('Failed to load models:', e);
     state.models = [];
   }
   fillModelSelect($modelSelect);
   fillModelSelect($rerenderSelect);
-  updateLandingCost();
+  updateLandingNote();
   updateRerenderButton();
 }
 
@@ -820,7 +799,7 @@ async function loadModels() {
 ['click', 'mousedown'].forEach(evt =>
   document.getElementById('model-picker').addEventListener(evt, e => e.stopPropagation()));
 $modelSelect.addEventListener('change', () => {
-  updateLandingCost();
+  updateLandingNote();
   fillModelSelect($rerenderSelect, $modelSelect.value);
   updateRerenderButton();
 });
@@ -847,7 +826,7 @@ $fileInput.addEventListener('change', e => {
 async function handleUpload(file) {
   const modelId = $modelSelect.value;
   if (!modelById(modelId)?.available) {
-    $modelCost.textContent = 'Pick an available model first.';
+    $modelNote.textContent = 'Pick an available model first.';
     $fileInput.value = '';
     return;
   }
