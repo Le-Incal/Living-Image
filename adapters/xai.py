@@ -10,9 +10,10 @@ import os
 
 import httpx
 
-from .base import BaseAdapter, CatalogEntry, ModelInfo, default_entry
+from .base import BaseAdapter, CatalogEntry, ModelInfo, default_entry, resolve_key
 
 ENV_KEY = "XAI_API_KEY"
+ALT_ENV_KEYS = ("GROK_API_KEY",)
 
 # Prefix to force edit-in-place: same building/scene, only lighting changes
 RELIGHT_ONLY_PREFIX = (
@@ -34,6 +35,7 @@ class XAIAdapter(BaseAdapter):
         return ModelInfo(
             id=e.id, name=e.name, provider="xai", cost_per_image=e.cost_per_image,
             api_model=e.api_model, env_key=ENV_KEY, default=e.default,
+            alt_env_keys=ALT_ENV_KEYS,
         )
 
     async def edit_image(
@@ -42,9 +44,9 @@ class XAIAdapter(BaseAdapter):
         prompt: str,
         mime_type: str = "image/png",
     ) -> bytes:
-        api_key = os.environ.get(ENV_KEY, "")
+        api_key = resolve_key(ENV_KEY, ALT_ENV_KEYS)
         if not api_key:
-            raise ValueError(f"{ENV_KEY} environment variable not set")
+            raise ValueError(f"{ENV_KEY} or {ALT_ENV_KEYS[0]} environment variable not set")
 
         b64_image = base64.b64encode(image_bytes).decode("utf-8")
         payload = {

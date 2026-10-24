@@ -13,6 +13,14 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
 
+def resolve_key(env_key: str, alt_env_keys: tuple = ()) -> str:
+    """Return the first non-empty value among env_key and its aliases."""
+    for name in (env_key, *alt_env_keys):
+        if name and os.environ.get(name):
+            return os.environ[name]
+    return ""
+
+
 @dataclass
 class ModelInfo:
     """Metadata about an available model."""
@@ -23,10 +31,11 @@ class ModelInfo:
     api_model: str = ""      # exact model string sent to the provider
     env_key: str = ""        # env var holding the provider API key
     default: bool = False    # preselected in the UI
+    alt_env_keys: tuple = () # other accepted env var names for the same key
 
     @property
     def available(self) -> bool:
-        return bool(self.env_key and os.environ.get(self.env_key))
+        return bool(resolve_key(self.env_key, self.alt_env_keys))
 
     def to_dict(self) -> dict:
         return {

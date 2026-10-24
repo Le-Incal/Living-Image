@@ -24,7 +24,7 @@ EXPECTED_MODELS = {
     "gpt-image-2.5-flare": ("openai", "gpt-image-2.5-flare", "OPENAI_API_KEY"),
     "grok-imagine-2.0": ("xai", "grok-imagine-image-2.0", "XAI_API_KEY"),
 }
-ALL_KEYS = ["GEMINI_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY"]
+ALL_KEYS = ["GEMINI_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "GROK_API_KEY"]
 FAKE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
 
@@ -237,3 +237,21 @@ class TestLandingLayout:
 
     def test_model_picker_sits_below_upload(self):
         assert INDEX.index('id="browse-btn"') < INDEX.index('id="model-select"')
+
+
+class TestGrokKeyAlias:
+
+    def test_grok_api_key_enables_grok(self, client, no_keys, monkeypatch):
+        monkeypatch.delenv("GROK_API_KEY", raising=False)
+        monkeypatch.setenv("GROK_API_KEY", "g")
+        data = {m["id"]: m for m in client.get("/api/models").json()}
+        assert data["grok-imagine-2.0"]["available"] is True
+
+    async def test_xai_adapter_uses_grok_api_key(self, no_keys, monkeypatch):
+        monkeypatch.setenv("GROK_API_KEY", "secret-grok")
+        cap = _patch_post(monkeypatch, XAI_RESP)
+        await AdapterRegistry().get_adapter("grok-imagine-2.0").edit_image(FAKE_PNG, "relight")
+        assert cap.headers["Authorization"] == "Bearer secret-grok"
+
+    def test_keys_check_reports_grok_key(self, client):
+        assert "GROK_API_KEY" in client.get("/api/keys-check").json()
