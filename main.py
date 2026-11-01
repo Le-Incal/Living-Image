@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from prompts import generate_time_slots, build_prompt, SOLAR_NOON_HOUR
+from prompts import generate_time_slots, build_prompt
 from adapters.base import AdapterRegistry
 from metrics import RunMetricsStore, clean_error
 
@@ -33,6 +33,9 @@ GENERATED_DIR.mkdir(exist_ok=True)
 
 # Adapter registry (singleton)
 registry = AdapterRegistry()
+
+# Frame shown as each run's thumbnail on the admin page
+ADMIN_THUMB_HOUR = 17
 
 # Backend-only run metrics (read via /api/admin/*)
 metrics_store = RunMetricsStore(
@@ -171,9 +174,9 @@ async def generate_variants(
 
     success_count = sum(1 for r in results if r["status"] == "success")
 
-    # Representative frame for the admin view: solar noon, else nearest success
+    # Representative frame for the admin view: 5 PM, else nearest success (ties earlier)
     ok = [r for r in results if r["status"] == "success"]
-    thumb = min(ok, key=lambda r: (abs(r["hour"] - SOLAR_NOON_HOUR), r["hour"])) if ok else None
+    thumb = min(ok, key=lambda r: (abs(r["hour"] - ADMIN_THUMB_HOUR), r["hour"])) if ok else None
 
     run = {
         "job_id": job_id,

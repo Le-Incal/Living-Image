@@ -35,7 +35,7 @@
   #logout { margin-bottom: 8px; }
   .thumbs { display: flex; gap: 6px; }
   .thumbs figure { margin: 0; }
-  .thumbs a, .thumbs .none { display: block; width: 120px; aspect-ratio: 4/3; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: var(--surface); }
+  .thumbs a, .thumbs .none { display: block; width: 150px; aspect-ratio: 4/3; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: var(--surface); }
   .thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
   .thumbs figcaption { font: .62rem/1.4 ui-monospace, monospace; color: var(--text-dim); margin-top: 4px; }
 </style>
@@ -64,7 +64,7 @@
     <h2>Runs, newest first</h2>
     <div class="wrap"><table>
       <thead><tr>
-        <th>Model</th><th>Original · frame</th><th>Started (UTC)</th><th>Job</th><th>OK / requested</th>
+        <th>Model</th><th>Original · frame</th><th>Started</th><th>Job</th><th>OK / requested</th>
         <th>Run time</th><th>Est. cost</th><th>Failures</th>
       </tr></thead>
       <tbody id="runs"></tbody>
@@ -105,6 +105,18 @@
     return fig;
   }
 
+  function runDate(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+  }
+
+  function runStarted(iso) {
+    var d = new Date(iso);
+    if (isNaN(d)) return '';
+    return runDate(iso) + ', ' + d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  }
+
   function label(hour) {
     if (hour === null || hour === undefined) return 'no frame';
     var h = hour % 12 || 12;
@@ -143,10 +155,10 @@
       cell(tr, run.model_name || run.model_id);
       var tcell = cell(tr, '');
       var box = document.createElement('div'); box.className = 'thumbs';
-      box.appendChild(thumb(run.original_url, 'original'));
-      box.appendChild(thumb(run.thumb_url, label(run.thumb_hour)));
+      box.appendChild(thumb(run.original_url, 'Original · ' + runDate(run.started_at)));
+      box.appendChild(thumb(run.thumb_url, label(run.thumb_hour) + ' · ' + runDate(run.started_at)));
       tcell.appendChild(box);
-      cell(tr, (run.started_at || '').replace('T', ' ').slice(0, 19), 'num');
+      cell(tr, runStarted(run.started_at), 'num');
       cell(tr, run.job_id, 'num');
       cell(tr, run.frames_ok + ' / ' + run.frames_requested, run.frames_failed ? 'num bad' : 'num');
       cell(tr, secs(run.total_ms || 0), 'num');
