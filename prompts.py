@@ -1,9 +1,22 @@
 """
-Prompt template system for Living Image crossfade test harness.
+Prompt template system for Living Image.
 
-Generates time-specific prompts (8am-8pm) that instruct image generation
-APIs to relight an architectural image while preserving structural fidelity.
-Sun position (elevation and azimuth) progresses evenly across the day.
+Generates time-specific prompts (8am-8pm) that instruct image models to
+relight an architectural image while preserving structural fidelity.
+
+Every statement in a prompt is derived from one solar model, so the
+prompt cannot contradict itself:
+
+- Solar position: 40N on the June solstice, solar noon at 1 PM (daylight
+  saving time). Elevation uses the standard spherical formula. Azimuth
+  uses the hour-angle approximation (15 degrees per hour from due south),
+  which keeps the sun's motion across the frame even.
+- Frame convention: the camera faces north. East is frame RIGHT, west is
+  frame LEFT, south is behind the camera, north is ahead, into the scene.
+  The prompt itself never names compass directions, because the real
+  orientation of the building is unknown.
+- Shadows fall opposite the light; their length is cot(elevation).
+- Color temperature, lighting, and sky text follow elevation, not the clock.
 """
 
 from dataclasses import dataclass
@@ -13,40 +26,95 @@ import math
 FIRST_HOUR = 8
 LAST_HOUR = 20
 
+LATITUDE = 40.0          # degrees north
+DECLINATION = 23.44      # June solstice
+SOLAR_NOON_HOUR = 13     # 1 PM local daylight time
 
-PROMPT_TEMPLATE = """Relight this architectural image to accurately depict how it would look at {time_label} on a clear day.
 
-CRITICAL — SUN AND SHADOWS (must change correctly in every image):
-The sun moves from the RIGHT side of the scene (east) in the morning to the LEFT side (west) in the evening. At {time_label}:
-- Sun position in the scene: {sun_position_in_frame}
-- Shadow direction: {shadow_direction_explicit}. All shadows in the image must fall in this direction — building shadows, tree shadows, and ground shadows all aligned.
-- Sun elevation: {sun_elevation}° above horizon. Shadow length: {shadow_length_description}.
+PROMPT_TEMPLATE = """Relight this architectural image to show how it looks at {time_label} on a clear day. Change the light. Keep everything else.
+
+SUN AND SHADOWS at {time_label}:
+- Sunlight comes {light_phrase}, {sun_elevation}° above the horizon. Do not draw the sun itself.
+- Shadows fall {shadow_phrase}. Building, tree, and ground shadows all point the same way.
+- Shadow length: {shadow_length_description}.
 {evening_darker_note}
-
-LIGHTING CONDITIONS at {time_label}:
+LIGHT:
 - {lighting_description}
-- Light color temperature: {color_temp_description} ({color_temp_k}K)
+- Color temperature: {color_temp_description} ({color_temp_k}K)
 - Sky: {sky_description}
 
-CHANGE ONLY these elements:
-- Sun position, lighting direction, and intensity
-- Shadow angles, lengths, and softness
-- Sky color gradient and brightness
-- Ambient light color temperature on all surfaces
-- Surface reflections and specular highlights consistent with {time_label} sunlight
+CHANGE ONLY:
+- Light direction, intensity, and color temperature
+- Shadow direction, length, and softness
+- Sky color and brightness
+- Reflections and specular highlights
 
-DO NOT CHANGE any of these elements:
+DO NOT CHANGE:
 - Building geometry, proportions, or structural lines
 - Window positions, sizes, or shapes
-- Material textures, patterns, or surface details
-- Vegetation shapes, positions, or density — do not add any trees, plants, shrubs, or vegetation that are not in the original image; empty courtyards and open areas must stay empty
+- Materials, textures, or surface details
+- Vegetation: do not add trees, plants, or shrubs; empty courtyards and open areas stay empty
 - Ground materials and layout
 - Camera angle, focal length, and composition
-- Any text, signage, or labels in the image
-- The number or placement of any objects
+- Text, signage, or labels
+- The number or placement of objects
 
-Preserve the EXACT architectural composition. Do not add or remove any elements (including trees or plants); only change lighting. This is a professional architectural visualization where structural accuracy is critical."""
+This is a professional architectural visualization. Structural accuracy matters more than drama."""
 
+
+# ──────────────────────────────────────────────
+# Frame language
+# ──────────────────────────────────────────────
+
+# Eight 45-degree sectors, as bearings relative to a north-facing camera.
+_SECTORS = [
+    "AHEAD", "AHEAD_RIGHT", "RIGHT", "BEHIND_RIGHT",
+    "BEHIND", "BEHIND_LEFT", "LEFT", "AHEAD_LEFT",
+]
+
+OPPOSITE_SIDE = {s: _SECTORS[(i + 4) % 8] for i, s in enumerate(_SECTORS)}
+
+LIGHT_PHRASES = {
+    "AHEAD": "from in front of the camera, so the building is backlit",
+    "AHEAD_RIGHT": "from in front of the camera and to the RIGHT",
+    "RIGHT": "from the RIGHT side of the frame",
+    "BEHIND_RIGHT": "from behind the camera and to the RIGHT",
+    "BEHIND": "from behind the camera",
+    "BEHIND_LEFT": "from behind the camera and to the LEFT",
+    "LEFT": "from the LEFT side of the frame",
+    "AHEAD_LEFT": "from in front of the camera and to the LEFT",
+}
+
+SHADOW_PHRASES = {
+    "AHEAD": "straight away from the camera, into the scene",
+    "AHEAD_RIGHT": "away from the camera and to the RIGHT",
+    "RIGHT": "toward the RIGHT side of the frame",
+    "BEHIND_RIGHT": "toward the camera and to the RIGHT",
+    "BEHIND": "toward the camera",
+    "BEHIND_LEFT": "toward the camera and to the LEFT",
+    "LEFT": "toward the LEFT side of the frame",
+    "AHEAD_LEFT": "away from the camera and to the LEFT",
+}
+
+
+def _side(bearing: float) -> str:
+    """Map a compass bearing to a frame sector for a north-facing camera."""
+    return _SECTORS[int(((bearing % 360) + 22.5) // 45) % 8]
+
+
+def _light_side(sun_azimuth: float) -> str:
+    """Frame side the sunlight comes from."""
+    return _side(sun_azimuth)
+
+
+def _shadow_side(sun_azimuth: float) -> str:
+    """Frame side shadows fall toward: always opposite the light."""
+    return _side(sun_azimuth + 180)
+
+
+# ──────────────────────────────────────────────
+# Solar model
+# ──────────────────────────────────────────────
 
 @dataclass
 class TimeSlot:
@@ -73,57 +141,38 @@ def _format_hour_label(hour: int) -> str:
         return f"{hour - 12}:00 PM"
 
 
+def _hour_angle(hour: float) -> float:
+    return 15.0 * (hour - SOLAR_NOON_HOUR)
+
+
 def _compute_sun_elevation(hour: int) -> float:
-    """
-    Sun elevation for ~40N, long summer day. Sunrise before 8am, sunset after 8pm.
-    Elevation progresses smoothly (sine) so sun moves evenly across the sky.
-    Solar noon ~13:30.
-    """
-    sunrise = 6.0
-    sunset = 20.5
-    day_length = sunset - sunrise
-    max_elevation = 58.0  # ~40N summer
-
-    if hour <= sunrise or hour >= sunset:
-        return 0.0
-
-    fraction = (hour - sunrise) / day_length
-    elevation = max_elevation * math.sin(math.pi * fraction)
-    return round(elevation, 1)
+    """Sun elevation in degrees at 40N on the June solstice. Zero below the horizon."""
+    lat = math.radians(LATITUDE)
+    dec = math.radians(DECLINATION)
+    h = math.radians(_hour_angle(hour))
+    sin_el = math.sin(lat) * math.sin(dec) + math.cos(lat) * math.cos(dec) * math.cos(h)
+    elevation = math.degrees(math.asin(max(-1.0, min(1.0, sin_el))))
+    return round(max(elevation, 0.0), 1)
 
 
 def _compute_sun_azimuth(hour: int) -> float:
     """
-    Sun azimuth in degrees from north. Progresses evenly: 8am ~90 (E), noon ~180 (S), 8pm ~270 (W).
-    Linear in hour across the 8am-8pm window for consistent motion across the image.
+    Sun azimuth in degrees from north, by the hour-angle approximation:
+    due south (180) at solar noon, 15 degrees per hour. Even steps keep
+    the sun's motion across the frame uniform from slot to slot.
     """
-    # Map hour 8 -> 90°, hour 20 -> 270° (linear)
-    t = (hour - FIRST_HOUR) / (LAST_HOUR - FIRST_HOUR)  # 0 at 8am, 1 at 8pm
-    azimuth = 90 + t * 180  # 90 (E) to 270 (W)
-    return round(azimuth, 0)
+    return round(180.0 + _hour_angle(hour), 0)
 
 
 def _compute_color_temp(hour: int) -> int:
     """
-    Color temperature in Kelvin across the day (8am-8pm).
-    Warm at 8am/8pm, cool at midday.
+    Kelvin from sun elevation: ~2200K at the horizon, ~5700K at the
+    solstice noon peak. Lower sun is always warmer, at any hour.
     """
-    temps = {
-        8:  3000,
-        9:  3800,
-        10: 4500,
-        11: 5300,
-        12: 5900,
-        13: 6200,
-        14: 6000,
-        15: 5500,
-        16: 4800,
-        17: 4000,
-        18: 3300,
-        19: 2900,
-        20: 2600,
-    }
-    return temps.get(hour, 5500)
+    el = _compute_sun_elevation(hour)
+    s = math.sin(math.radians(el))
+    kelvin = 2200 + 3600 * (s ** 0.75)
+    return int(round(kelvin / 50.0) * 50)
 
 
 def _color_temp_description(kelvin: int) -> str:
@@ -142,123 +191,107 @@ def _color_temp_description(kelvin: int) -> str:
         return "cool bright daylight"
 
 
-def _shadow_description(hour: int, sun_elevation: float, sun_azimuth: float) -> str:
-    """Describe shadow direction and length from sun position (even progression 8am-8pm)."""
-    if sun_elevation <= 5:
-        return "Very long shadows in the direction opposite the sun. Soft, diffuse shadow edges from low-angle light."
-    if sun_elevation <= 15:
-        return "Long shadows opposite the sun azimuth. Moderately soft shadow edges."
-    if sun_elevation <= 35:
-        return "Medium-length shadows opposite the sun. Clearly defined shadow edges."
-    if sun_elevation <= 55:
-        return "Short shadows nearly directly opposite the sun. Sharp, well-defined shadow edges from high sun."
-    return "Short shadows directly opposite the sun. Sharp shadow edges from overhead sun."
+# ──────────────────────────────────────────────
+# Shadows
+# ──────────────────────────────────────────────
 
-
-def _sun_position_in_frame(sun_azimuth: float) -> str:
-    """Where the sun appears in the image: right (east) to left (west) across the day."""
-    a = sun_azimuth  # 90=E, 180=S, 270=W
-    if a <= 105:
-        return "Sun on the RIGHT side of the scene (east). Light comes from the right."
-    if a <= 135:
-        return "Sun in the upper-right of the scene. Light from the right and slightly from above."
-    if a <= 165:
-        return "Sun in the upper part of the scene (south). Light from above and slightly from the right."
-    if a <= 195:
-        return "Sun nearly overhead (south). Light from directly above."
-    if a <= 225:
-        return "Sun in the upper part of the scene (south). Light from above and slightly from the left."
-    if a <= 255:
-        return "Sun in the upper-left of the scene. Light from the left and slightly from above."
-    return "Sun on the LEFT side of the scene (west). Light comes from the left."
-
-
-def _shadow_direction_explicit(sun_azimuth: float) -> str:
-    """Explicit shadow direction so the model shifts shadows evenly. Shadows point away from sun."""
-    shadow_az = (sun_azimuth + 180) % 360  # direction shadows fall
-    if shadow_az <= 30 or shadow_az >= 330:
-        return "Shadows cast toward the TOP of the frame (north)"
-    if 30 < shadow_az <= 60:
-        return "Shadows cast toward the upper-left (northwest)"
-    if 60 < shadow_az <= 120:
-        return "Shadows cast toward the LEFT (west)"
-    if 120 < shadow_az <= 150:
-        return "Shadows cast toward the lower-left (southwest)"
-    if 150 < shadow_az <= 210:
-        return "Shadows cast toward the BOTTOM of the frame (south)"
-    if 210 < shadow_az <= 240:
-        return "Shadows cast toward the lower-right (southeast)"
-    if 240 < shadow_az <= 300:
-        return "Shadows cast toward the RIGHT (east)"
-    return "Shadows cast toward the upper-right (northeast)"
+def _shadow_length_ratio(sun_elevation: float) -> float:
+    """Shadow length as a multiple of object height: cot(elevation)."""
+    if sun_elevation <= 0:
+        return math.inf
+    return 1.0 / math.tan(math.radians(sun_elevation))
 
 
 def _shadow_length_description(sun_elevation: float) -> str:
-    """Short description of shadow length from elevation."""
-    if sun_elevation <= 5:
-        return "very long (low sun)"
-    if sun_elevation <= 20:
-        return "long"
-    if sun_elevation <= 45:
-        return "medium length"
-    if sun_elevation <= 60:
-        return "short"
-    return "very short, nearly directly below objects"
+    """Shadow length in words and as a multiple of object height."""
+    r = _shadow_length_ratio(sun_elevation)
+    if r >= 10:
+        return "very long, more than ten times the height of the objects casting them"
+    if r >= 3:
+        return f"long, about {r:.0f} times the height of the objects casting them"
+    if r >= 1:
+        return f"medium, about {r:.1f} times the height of the objects casting them"
+    return f"short, about {r:.1f} times the height of the objects casting them"
+
+
+def _sun_position_in_frame(sun_azimuth: float) -> str:
+    """Where the sunlight comes from, in frame language."""
+    return f"Sunlight comes {LIGHT_PHRASES[_light_side(sun_azimuth)]}."
+
+
+def _shadow_direction_explicit(sun_azimuth: float) -> str:
+    """Where shadows fall, in frame language. Always opposite the light."""
+    return f"Shadows fall {SHADOW_PHRASES[_shadow_side(sun_azimuth)]}"
+
+
+def _shadow_description(hour: int, sun_elevation: float, sun_azimuth: float) -> str:
+    """Direction plus length, derived from the same sun."""
+    return (
+        f"{_shadow_direction_explicit(sun_azimuth)}. "
+        f"Length: {_shadow_length_description(sun_elevation)}."
+    )
+
+
+# ──────────────────────────────────────────────
+# Light and sky, derived from elevation
+# ──────────────────────────────────────────────
+
+def get_lighting_description(hour: int) -> str:
+    """Natural-language lighting conditions, derived from sun elevation."""
+    el = _compute_sun_elevation(hour)
+    morning = hour < SOLAR_NOON_HOUR
+    if el < 8:
+        word = "Dawn" if morning else "Dusk"
+        return f"{word} light from a sun just above the horizon. Deep warm tones, low contrast, fading brightness."
+    if el < 20:
+        word = "Early morning" if morning else "Evening"
+        return f"{word}. Golden light from a low sun. Warm, raking, strongly directional."
+    if el < 40:
+        word = "Morning" if morning else "Late afternoon"
+        return f"{word} light from a sun partway up the sky. Clear, directional, warm-neutral."
+    if hour == SOLAR_NOON_HOUR:
+        return "Solar noon. The sun is at its peak for the day. Bright, crisp, high-contrast light."
+    word = "Late morning" if morning else "Early afternoon"
+    return f"{word} light from a high sun. Bright, crisp, high-contrast."
 
 
 def _sky_description(hour: int) -> str:
-    """Describe sky appearance at given hour (8am-8pm)."""
-    descs = {
-        8:  "Brightening sky with warm yellow tones near the horizon transitioning to clear blue above.",
-        9:  "Clear blue sky with slight warmth near the horizon. Bright and luminous.",
-        10: "Deep clear blue sky. Uniform brightness with minimal horizon haze.",
-        11: "Bright, saturated blue sky. Even illumination across the dome.",
-        12: "Intense blue overhead, slightly lighter near the horizon. Maximum brightness.",
-        13: "Bright blue sky at peak intensity.",
-        14: "Clear blue sky, beginning almost imperceptibly to warm.",
-        15: "Blue sky with subtle warm shift. Light becoming slightly more directional.",
-        16: "Sky transitioning to warmer blue. Noticeable golden quality to the light.",
-        17: "Golden hour sky. Warm amber-gold tones from the western horizon.",
-        18: "Late golden hour. Rich amber and coral near the western horizon.",
-        19: "Sunset sky. Deep orange and magenta at the horizon fading to deep blue above. Light fading.",
-        20: "Dusk. Darker sky with deep orange, coral, and purple at the horizon. Much lower overall brightness — evening atmosphere.",
-    }
-    return descs.get(hour, "Clear blue sky.")
+    """Sky appearance, derived from sun elevation."""
+    el = _compute_sun_elevation(hour)
+    if el < 8:
+        return "Deep orange and coral at the horizon, fading to dark blue above. Much dimmer than midday."
+    if el < 20:
+        return "Warm amber and orange near the horizon, clear blue above."
+    if el < 40:
+        return "Clear blue sky with warm tones near the horizon."
+    return "Bright, deep blue sky, slightly paler near the horizon."
 
 
-def get_lighting_description(hour: int) -> str:
-    """Get a natural-language description of lighting conditions (8am-8pm)."""
-    descs = {
-        8:  "Morning light. Sun low in the east. Warm directional light with long shadows to the west.",
-        9:  "Mid-morning. Sun climbing in the east. Balanced warm-neutral light with clear shadows.",
-        10: "Late morning. Strong directional sun from the east. Neutral bright daylight.",
-        11: "Approaching midday. Sun high in the sky. Bright, even illumination with short shadows.",
-        12: "Noon. Sun near its highest. Maximum brightness with minimal shadows.",
-        13: "Early afternoon. Sun beginning westward descent. Bright directional light.",
-        14: "Mid-afternoon. Sun in the west-southwest. Clear directional light with lengthening shadows.",
-        15: "Afternoon. Sun lowering in the west. Warm directional light.",
-        16: "Late afternoon. Noticeably warm golden light with long shadows to the east.",
-        17: "Golden hour. Low sun in the west. Rich golden-amber light. Long dramatic shadows.",
-        18: "Late golden hour. Very low western sun. Warm amber light on all surfaces.",
-        19: "Sunset. Very low sun near the horizon. Deep warm light. Extremely long shadows.",
-        20: "8pm dusk. Sun at or just below horizon. Darker evening image: reduced overall brightness, dimmer surfaces, deep warm tones. Very long shadows. The scene should look clearly darker than midday.",
-    }
-    return descs.get(hour, "Standard daylight conditions.")
+def _evening_darker_note(hour: int) -> str:
+    """Only when the sun is low: an explicit instruction to darken the image."""
+    el = _compute_sun_elevation(hour)
+    if el >= 8:
+        return ""
+    word = "Early morning" if hour < SOLAR_NOON_HOUR else "Evening"
+    return f"- {word}: the image must be noticeably darker than midday, with dimmer sky and surfaces.\n"
 
+
+# ──────────────────────────────────────────────
+# Assembly
+# ──────────────────────────────────────────────
 
 def generate_time_slots() -> list[TimeSlot]:
-    """Generate TimeSlots from 8am to 8pm (13 one-hour slots). Sun position moves evenly."""
+    """Generate TimeSlots from 8am to 8pm (13 one-hour slots)."""
     slots = []
     for hour in range(FIRST_HOUR, LAST_HOUR + 1):
         sun_el = _compute_sun_elevation(hour)
         sun_az = _compute_sun_azimuth(hour)
-        color_k = _compute_color_temp(hour)
         slots.append(TimeSlot(
             hour=hour,
             label=_format_hour_label(hour),
             sun_elevation=sun_el,
             sun_azimuth=sun_az,
-            color_temp_k=color_k,
+            color_temp_k=_compute_color_temp(hour),
             shadow_description=_shadow_description(hour, sun_el, sun_az),
             sky_description=_sky_description(hour),
             lighting_description=get_lighting_description(hour),
@@ -266,22 +299,12 @@ def generate_time_slots() -> list[TimeSlot]:
     return slots
 
 
-def _evening_darker_note(hour: int) -> str:
-    """For 8pm only: explicit instruction to render a darker evening image."""
-    if hour != 20:
-        return ""
-    return (
-        "IMPORTANT — 8pm must look like evening: the image must be noticeably DARKER than daytime. "
-        "Lower overall brightness, dimmer sky and surfaces, dusk exposure. Not as bright as midday or afternoon."
-    )
-
-
 def build_prompt(slot: TimeSlot) -> str:
     """Build a complete API prompt for a given time slot."""
     return PROMPT_TEMPLATE.format(
         time_label=slot.label,
-        sun_position_in_frame=_sun_position_in_frame(slot.sun_azimuth),
-        shadow_direction_explicit=_shadow_direction_explicit(slot.sun_azimuth),
+        light_phrase=LIGHT_PHRASES[_light_side(slot.sun_azimuth)],
+        shadow_phrase=SHADOW_PHRASES[_shadow_side(slot.sun_azimuth)],
         shadow_length_description=_shadow_length_description(slot.sun_elevation),
         sun_elevation=slot.sun_elevation,
         evening_darker_note=_evening_darker_note(slot.hour),

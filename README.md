@@ -46,14 +46,14 @@ The slider maps linearly from 7am to 6pm. At any position, two adjacent keyframe
 
 ### The Prompts
 
-Each of the 12 API calls gets a detailed prompt specifying:
+Every statement in a prompt comes from one solar model, so a prompt cannot contradict itself (enforced by `tests/test_prompt_consistency.py`):
 
-- Exact time of day and lighting description
-- Sun elevation angle (sinusoidal model for ~40N latitude)
-- Color temperature in Kelvin (2700K at dusk to 6200K at midday)
-- Shadow direction and characteristics
-- Sky gradient description
-- Explicit instructions on what to preserve (geometry, textures, composition)
+- Sun position for 40N on the June solstice, solar noon at 1 PM: elevation from the spherical formula (peak 73.4 degrees), azimuth from the hour angle (15 degrees per hour, even motion across the frame)
+- Frame convention: the camera faces north, so morning light comes from the RIGHT and evening light from the LEFT. The prompt uses frame language only, never compass words, because the building's real orientation is unknown
+- Shadows always fall opposite the light, with length stated as a multiple of object height (cot of elevation)
+- Color temperature, lighting, and sky text follow elevation, not the clock (about 2700K at 8 PM to 5700K at solar noon)
+- A darker-image instruction only when the sun is below 8 degrees
+- Explicit lists of what may change (light, shadows, sky, reflections) and what may not (geometry, windows, materials, vegetation, camera, text, objects)
 
 Click "View prompts" in the UI to inspect the full prompt text for each time slot.
 
