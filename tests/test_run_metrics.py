@@ -279,20 +279,20 @@ class TestRunThumbnail:
         run = store.all()[0]
         assert run["original_url"] == f"/api/images/{job}/original.png"
 
-    def test_thumbnail_is_solar_noon_frame(self, client, store, xai_key, monkeypatch):
+    def test_thumbnail_is_5pm_frame(self, client, store, xai_key, monkeypatch):
         _patch_post(monkeypatch)
         job = _generate(client).json()["job_id"]
         run = store.all()[0]
-        assert run["thumb_hour"] == 13
-        assert run["thumb_url"] == f"/api/images/{job}/slot_05_h13.png"
+        assert run["thumb_hour"] == 17
+        assert run["thumb_url"] == f"/api/images/{job}/slot_09_h17.png"
 
     def test_thumbnail_falls_back_to_nearest_successful_hour(self, client, store, xai_key, monkeypatch):
-        # Every 2nd call fails: 9, 11, 13, 15, 17, 19 fail. 12 and 14 tie; earlier wins.
+        # Every 2nd call fails: 9, 11, 13, 15, 17, 19 fail. 16 and 18 tie; earlier wins.
         _patch_post(monkeypatch, fail_every=2)
         _generate(client)
         run = store.all()[0]
-        assert run["thumb_hour"] == 12
-        assert run["thumb_url"].endswith("slot_04_h12.png")
+        assert run["thumb_hour"] == 16
+        assert run["thumb_url"].endswith("slot_08_h16.png")
 
     def test_no_thumbnail_when_every_frame_failed(self, client, store, xai_key, monkeypatch):
         _patch_post(monkeypatch, fail_every=1)
@@ -353,3 +353,13 @@ class TestAdminPageSession:
         html = self._html()
         assert "Wrong token" in html
         assert html.count("sessionStorage.removeItem") >= 2
+
+
+class TestAdminPageImageDates:
+
+    def test_each_image_caption_carries_the_run_date(self):
+        html = (STATIC / "admin.html").read_text()
+        assert "function runDate" in html
+        assert "toLocaleDateString" in html
+        # both thumbnails are captioned with the date
+        assert html.count("runDate(run.started_at)") >= 2
