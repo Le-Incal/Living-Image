@@ -22,9 +22,8 @@ EXPECTED_MODELS = {
     "nano-banana-pro": ("gemini", "gemini-3-pro-image", "GEMINI_API_KEY"),
     "gpt-image-2.5-sunburst": ("openai", "gpt-image-2.5-sunburst", "OPENAI_API_KEY"),
     "gpt-image-2.5-flare": ("openai", "gpt-image-2.5-flare", "OPENAI_API_KEY"),
-    "grok-imagine-2.0": ("xai", "grok-imagine-image-2.0", "XAI_API_KEY"),
 }
-ALL_KEYS = ["GEMINI_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "GROK_API_KEY"]
+ALL_KEYS = ["GEMINI_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "GROK_API_KEY"]  # xAI listed so stale env vars are cleared
 FAKE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 
 
@@ -131,7 +130,6 @@ def _patch_post(monkeypatch, response_json):
 IMG_B64 = base64.b64encode(b"result-bytes").decode()
 GEMINI_RESP = {"candidates": [{"content": {"parts": [{"inlineData": {"data": IMG_B64}}]}}]}
 OPENAI_RESP = {"data": [{"b64_json": IMG_B64}]}
-XAI_RESP = {"data": [{"b64_json": IMG_B64}]}
 
 
 class TestAdapterRequests:
@@ -157,12 +155,6 @@ class TestAdapterRequests:
         # input_fidelity is a gpt-image-1.x parameter; not sent to 2.5 models
         assert "input_fidelity" not in cap.json
 
-    async def test_xai_sends_model_string(self, monkeypatch):
-        monkeypatch.setenv("XAI_API_KEY", "secret-xai")
-        cap = _patch_post(monkeypatch, XAI_RESP)
-        out = await AdapterRegistry().get_adapter("grok-imagine-2.0").edit_image(FAKE_PNG, "relight")
-        assert out == b"result-bytes"
-        assert cap.json["model"] == "grok-imagine-image-2.0"
 
 
 # ──────────────────────────────────────────────
@@ -181,16 +173,16 @@ class TestGenerateWithModel:
         assert "OPENAI_API_KEY" in resp.json()["detail"]
 
     def test_response_reports_model_used(self, client, monkeypatch):
-        monkeypatch.setenv("XAI_API_KEY", "x")
-        _patch_post(monkeypatch, XAI_RESP)
+        monkeypatch.setenv("OPENAI_API_KEY", "x")
+        _patch_post(monkeypatch, OPENAI_RESP)
         resp = client.post(
             "/api/generate",
             files={"image": ("t.png", FAKE_PNG, "image/png")},
-            data={"model_id": "grok-imagine-2.0"},
+            data={"model_id": "gpt-image-2.5-flare"},
         )
         assert resp.status_code == 200
         body = resp.json()
-        assert body["model"] == "grok-imagine-2.0"
+        assert body["model"] == "gpt-image-2.5-flare"
         assert body["model_name"]
         assert body["success"] == body["total"]
 
@@ -239,22 +231,37 @@ class TestLandingLayout:
         assert INDEX.index('id="browse-btn"') < INDEX.index('id="model-select"')
 
 
-class TestGrokKeyAlias:
+class TestGrokRemoved:
+    """Grok Imagine was removed: xAI's entry-tier limit (6-12 image requests
+    per second) cannot take a 13-frame burst, so every run lost frames."""
 
-    def test_grok_api_key_enables_grok(self, client, no_keys, monkeypatch):
-        monkeypatch.delenv("GROK_API_KEY", raising=False)
-        monkeypatch.setenv("GROK_API_KEY", "g")
-        data = {m["id"]: m for m in client.get("/api/models").json()}
-        assert data["grok-imagine-2.0"]["available"] is True
+    def test_grok_not_in_catalog(self):
+        ids = [m.id for m in AdapterRegistry().list_models()]
+        assert not any("grok" in i for i in ids)
 
-    async def test_xai_adapter_uses_grok_api_key(self, no_keys, monkeypatch):
-        monkeypatch.setenv("GROK_API_KEY", "secret-grok")
-        cap = _patch_post(monkeypatch, XAI_RESP)
-        await AdapterRegistry().get_adapter("grok-imagine-2.0").edit_image(FAKE_PNG, "relight")
-        assert cap.headers["Authorization"] == "Bearer secret-grok"
+    def test_no_xai_provider_remains(self):
+        providers = {m.provider for m in AdapterRegistry().list_models()}
+        assert providers == {"gemini", "openai"}
 
-    def test_keys_check_reports_grok_key(self, client):
-        assert "GROK_API_KEY" in client.get("/api/keys-check").json()
+    def test_grok_not_offered_by_api(self, client):
+        assert all("grok" not in m["id"] for m in client.get("/api/models").json())
+
+    def test_generate_with_grok_id_rejected(self, client, monkeypatch):
+        monkeypatch.setenv("XAI_API_KEY", "x")
+        resp = client.post(
+            "/api/generate",
+            files={"image": ("t.png", FAKE_PNG, "image/png")},
+            data={"model_id": "grok-imagine-2.0"},
+        )
+        assert resp.status_code == 400
+        assert "Unknown model" in resp.json()["detail"]
+
+    def test_keys_check_no_longer_reports_xai_keys(self, client):
+        data = client.get("/api/keys-check").json()
+        assert "XAI_API_KEY" not in data and "GROK_API_KEY" not in data
+
+    def test_xai_adapter_module_removed(self):
+        assert not (Path(__file__).parent.parent / "adapters" / "xai.py").exists()
 
 
 class TestControlsLayout:

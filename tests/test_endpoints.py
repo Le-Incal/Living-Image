@@ -32,7 +32,7 @@ class TestHealthEndpoints:
         data = resp.json()
         assert "GEMINI_API_KEY" in data
         assert "OPENAI_API_KEY" in data
-        assert "XAI_API_KEY" in data
+        assert "XAI_API_KEY" not in data  # Grok removed
         # Values must be booleans, never the actual key
         for key, val in data.items():
             assert isinstance(val, bool), f"{key} should be bool, got {type(val)}"

@@ -20,7 +20,7 @@ from main import app
 
 FAKE_PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
 ALL_KEYS = ["GEMINI_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "GROK_API_KEY"]
-XAI_OK = {"data": [{"b64_json": "cmVzdWx0"}]}  # base64("result")
+OPENAI_OK = {"data": [{"b64_json": "cmVzdWx0"}]}  # base64("result")
 
 
 @pytest.fixture
@@ -37,10 +37,10 @@ def store(tmp_path, monkeypatch):
 
 
 @pytest.fixture
-def xai_key(monkeypatch):
+def api_key(monkeypatch):
     for k in ALL_KEYS:
         monkeypatch.delenv(k, raising=False)
-    monkeypatch.setenv("XAI_API_KEY", "secret-xai-999")
+    monkeypatch.setenv("OPENAI_API_KEY", "secret-oai-999")
 
 
 def _patch_post(monkeypatch, fail_every=0, error_text="rate limited"):
@@ -51,13 +51,13 @@ def _patch_post(monkeypatch, fail_every=0, error_text="rate limited"):
         calls["n"] += 1
         if fail_every and calls["n"] % fail_every == 0:
             raise httpx.HTTPError(error_text)
-        return httpx.Response(200, json=XAI_OK, request=httpx.Request("POST", url))
+        return httpx.Response(200, json=OPENAI_OK, request=httpx.Request("POST", url))
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     return calls
 
 
-def _generate(client, model_id="grok-imagine-2.0"):
+def _generate(client, model_id="gpt-image-2.5-flare"):
     return client.post(
         "/api/generate",
         files={"image": ("t.png", FAKE_PNG, "image/png")},
@@ -94,21 +94,21 @@ class TestStore:
 
 class TestGenerateRecordsRun:
 
-    def test_one_run_recorded_per_generate(self, client, store, xai_key, monkeypatch):
+    def test_one_run_recorded_per_generate(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch)
         assert _generate(client).status_code == 200
         runs = store.all()
         assert len(runs) == 1
         run = runs[0]
-        assert run["model_id"] == "grok-imagine-2.0"
-        assert run["provider"] == "xai"
+        assert run["model_id"] == "gpt-image-2.5-flare"
+        assert run["provider"] == "openai"
         assert run["frames_requested"] == 13
         assert run["frames_ok"] == 13
         assert run["frames_failed"] == 0
         assert run["total_ms"] >= 0
         assert run["started_at"]
 
-    def test_every_frame_timed(self, client, store, xai_key, monkeypatch):
+    def test_every_frame_timed(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch)
         _generate(client)
         frames = store.all()[0]["frames"]
@@ -118,7 +118,7 @@ class TestGenerateRecordsRun:
             assert f["ms"] >= 0
             assert f["status"] == "success"
 
-    def test_failed_frames_counted_with_reason(self, client, store, xai_key, monkeypatch):
+    def test_failed_frames_counted_with_reason(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch, fail_every=2, error_text="429 Too Many Requests")
         _generate(client)
         run = store.all()[0]
@@ -128,26 +128,26 @@ class TestGenerateRecordsRun:
         assert len(failed) == 6
         assert all("429" in f["error"] for f in failed)
 
-    def test_cost_counts_only_successful_frames(self, client, store, xai_key, monkeypatch):
+    def test_cost_counts_only_successful_frames(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch, fail_every=2)
         _generate(client)
         run = store.all()[0]
-        info = main.registry.get_adapter("grok-imagine-2.0").model_info
+        info = main.registry.get_adapter("gpt-image-2.5-flare").model_info
         assert run["est_cost_usd"] == pytest.approx(7 * info.cost_per_image, abs=1e-4)
 
-    def test_error_text_never_contains_api_key(self, client, store, xai_key, monkeypatch):
-        _patch_post(monkeypatch, fail_every=1, error_text="bad key secret-xai-999")
+    def test_error_text_never_contains_api_key(self, client, store, api_key, monkeypatch):
+        _patch_post(monkeypatch, fail_every=1, error_text="bad key secret-oai-999")
         _generate(client)
         dumped = json.dumps(store.all())
-        assert "secret-xai-999" not in dumped
+        assert "secret-oai-999" not in dumped
 
-    def test_error_text_is_bounded(self, client, store, xai_key, monkeypatch):
+    def test_error_text_is_bounded(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch, fail_every=1, error_text="x" * 5000)
         _generate(client)
         for f in store.all()[0]["frames"]:
             assert len(f["error"]) <= 300
 
-    def test_run_is_logged_as_structured_line(self, client, store, xai_key, monkeypatch, caplog):
+    def test_run_is_logged_as_structured_line(self, client, store, api_key, monkeypatch, caplog):
         _patch_post(monkeypatch)
         with caplog.at_level(logging.INFO):
             _generate(client)
@@ -163,7 +163,7 @@ class TestGenerateRecordsRun:
 
 class TestPublicResponseHasNoMetrics:
 
-    def test_generate_response_has_no_timing_or_cost(self, client, store, xai_key, monkeypatch):
+    def test_generate_response_has_no_timing_or_cost(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch)
         body = _generate(client).json()
         for field in ("total_ms", "est_cost_usd", "frames"):
@@ -273,20 +273,20 @@ class TestAdminPage:
 
 class TestRunThumbnail:
 
-    def test_run_records_original_url(self, client, store, xai_key, monkeypatch):
+    def test_run_records_original_url(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch)
         job = _generate(client).json()["job_id"]
         run = store.all()[0]
         assert run["original_url"] == f"/api/images/{job}/original.png"
 
-    def test_thumbnail_is_5pm_frame(self, client, store, xai_key, monkeypatch):
+    def test_thumbnail_is_5pm_frame(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch)
         job = _generate(client).json()["job_id"]
         run = store.all()[0]
         assert run["thumb_hour"] == 17
         assert run["thumb_url"] == f"/api/images/{job}/slot_09_h17.png"
 
-    def test_thumbnail_falls_back_to_nearest_successful_hour(self, client, store, xai_key, monkeypatch):
+    def test_thumbnail_falls_back_to_nearest_successful_hour(self, client, store, api_key, monkeypatch):
         # Every 2nd call fails: 9, 11, 13, 15, 17, 19 fail. 16 and 18 tie; earlier wins.
         _patch_post(monkeypatch, fail_every=2)
         _generate(client)
@@ -294,14 +294,14 @@ class TestRunThumbnail:
         assert run["thumb_hour"] == 16
         assert run["thumb_url"].endswith("slot_08_h16.png")
 
-    def test_no_thumbnail_when_every_frame_failed(self, client, store, xai_key, monkeypatch):
+    def test_no_thumbnail_when_every_frame_failed(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch, fail_every=1)
         _generate(client)
         run = store.all()[0]
         assert run["thumb_url"] is None
         assert run["thumb_hour"] is None
 
-    def test_public_response_still_has_no_thumbnail_fields(self, client, store, xai_key, monkeypatch):
+    def test_public_response_still_has_no_thumbnail_fields(self, client, store, api_key, monkeypatch):
         _patch_post(monkeypatch)
         body = _generate(client).json()
         assert "thumb_url" not in body and "thumb_hour" not in body

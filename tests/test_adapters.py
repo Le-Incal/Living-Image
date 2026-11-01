@@ -12,7 +12,6 @@ import pytest
 from adapters.base import AdapterRegistry, BaseAdapter, ModelInfo
 from adapters.gemini import GeminiAdapter
 from adapters.openai_adapter import OpenAIAdapter
-from adapters.xai import XAIAdapter
 
 
 # ──────────────────────────────────────────────
@@ -74,9 +73,9 @@ class TestAdapterRegistry:
 # ──────────────────────────────────────────────
 
 class TestAdapterInterface:
-    """Verify all three adapters implement BaseAdapter correctly."""
+    """Verify every adapter implements BaseAdapter correctly."""
 
-    @pytest.fixture(params=[GeminiAdapter, OpenAIAdapter, XAIAdapter])
+    @pytest.fixture(params=[GeminiAdapter, OpenAIAdapter])
     def adapter(self, request):
         return request.param()
 
@@ -92,12 +91,12 @@ class TestAdapterInterface:
         assert info.cost_per_image > 0
 
     def test_model_ids_are_unique(self):
-        adapters = [GeminiAdapter(), OpenAIAdapter(), XAIAdapter()]
+        adapters = [GeminiAdapter(), OpenAIAdapter()]
         ids = [a.model_info.id for a in adapters]
         assert len(ids) == len(set(ids)), f"Duplicate model IDs found: {ids}"
 
     def test_providers_are_distinct(self):
-        adapters = [GeminiAdapter(), OpenAIAdapter(), XAIAdapter()]
+        adapters = [GeminiAdapter(), OpenAIAdapter()]
         providers = [a.model_info.provider for a in adapters]
         assert len(providers) == len(set(providers)), f"Duplicate providers: {providers}"
 
@@ -128,13 +127,9 @@ class TestAdapterCosts:
         cost = OpenAIAdapter().model_info.cost_per_image
         assert 0.01 <= cost <= 0.20, f"OpenAI cost {cost} seems wrong"
 
-    def test_xai_cost(self):
-        cost = XAIAdapter().model_info.cost_per_image
-        assert 0.01 <= cost <= 0.20, f"xAI cost {cost} seems wrong"
-
     def test_full_run_cost_is_reasonable(self):
         """13 images per run should cost less than $2 for any provider."""
-        for adapter_cls in [GeminiAdapter, OpenAIAdapter, XAIAdapter]:
+        for adapter_cls in [GeminiAdapter, OpenAIAdapter]:
             cost = adapter_cls().model_info.cost_per_image * 13
             assert cost < 2.0, (
                 f"{adapter_cls.__name__} full run costs ${cost:.2f}, seems too expensive"
