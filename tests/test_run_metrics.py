@@ -318,3 +318,38 @@ class TestAdminPageThumbnails:
     def test_admin_page_never_uses_inner_html(self):
         """Run data includes provider error text; render with textContent only."""
         assert "innerHTML" not in (STATIC / "admin.html").read_text()
+
+
+class TestAdminPageSession:
+
+    def _html(self):
+        return (STATIC / "admin.html").read_text()
+
+    def test_has_logout_button(self):
+        assert 'id="logout"' in self._html()
+
+    def test_logout_starts_hidden(self):
+        html = self._html()
+        tag = html[html.index('id="logout"') - 80: html.index('id="logout"') + 80]
+        assert "hidden" in tag
+
+    def test_login_hides_form_and_shows_logout(self):
+        html = self._html()
+        assert "function showSignedIn" in html
+        body = html[html.index("function showSignedIn"):]
+        body = body[: body.index("\n  }")]
+        assert "auth" in body and "logout" in body
+
+    def test_logout_forgets_token_and_clears_data(self):
+        html = self._html()
+        assert "function logOut" in html
+        body = html[html.index("function logOut"):]
+        body = body[: body.index("\n  }")]
+        assert "sessionStorage.removeItem" in body
+        assert "summary" in body and "runs" in body
+
+    def test_rejected_token_is_forgotten(self):
+        """A stale saved token must not keep auto-loading into a 403."""
+        html = self._html()
+        assert "Wrong token" in html
+        assert html.count("sessionStorage.removeItem") >= 2
