@@ -232,7 +232,8 @@ class TestAdminSummary:
         assert a["frames_failed"] == 2
         assert a["failure_rate"] == pytest.approx(0.25)
         assert a["mean_run_ms"] == pytest.approx(600)
-        assert a["median_frame_ms"] == pytest.approx(450)
+        # Timing covers successful frames only; a failed call is not a render time
+        assert a["median_frame_ms"] == pytest.approx(350)
         assert a["mean_cost_usd"] == pytest.approx(0.3)
 
     def test_summary_p95_frame_ms(self, client, store, monkeypatch):

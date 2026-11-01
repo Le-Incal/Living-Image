@@ -80,6 +80,16 @@ living-image-crossfade/
 └── run.sh                 # Quick start script
 ```
 
+## Run Metrics (admin only)
+
+Every generation run records per-frame timing, failed frames with their error, and estimated cost from successful frames. Metrics never appear in the public API or the app UI.
+
+- Set `ADMIN_TOKEN` in Railway variables to enable. Without it the admin endpoints return 404.
+- Open `/admin` (not linked from the app), enter the token. It is sent as an `X-Admin-Token` header, never in the URL.
+- `GET /api/admin/summary`: per-model runs, failure rate, mean run time, median and p95 frame time, mean cost per run
+- `GET /api/admin/runs`: every run, newest first, with per-frame detail
+- The metrics file resets on redeploy. Each run is also logged as a `run_metrics {...}` line, which Railway keeps.
+
 ## API Endpoints
 
 | Endpoint | Method | Description |

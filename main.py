@@ -6,19 +6,24 @@ across multiple AI model providers.
 """
 
 import asyncio
+import hmac
+import json
 import logging
 import os
+import time
 import uuid
+from datetime import datetime, timezone
 from pathlib import Path
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from prompts import generate_time_slots, build_prompt
 from adapters.base import AdapterRegistry
+from metrics import RunMetricsStore, clean_error
 
 app = FastAPI(title="Living Image Crossfade Test Harness")
 
@@ -28,6 +33,11 @@ GENERATED_DIR.mkdir(exist_ok=True)
 
 # Adapter registry (singleton)
 registry = AdapterRegistry()
+
+# Backend-only run metrics (read via /api/admin/*)
+metrics_store = RunMetricsStore(
+    os.environ.get("METRICS_PATH") or (GENERATED_DIR / "run_metrics.jsonl")
+)
 
 
 @app.get("/health")
@@ -115,14 +125,17 @@ async def generate_variants(
     original_path.write_bytes(image_bytes)
 
     slots = generate_time_slots()
-    results = []
-    errors = []
+    timings: dict[int, float] = {}
+    started_at = datetime.now(timezone.utc).isoformat()
+    run_start = time.perf_counter()
 
-    # Fire all 12 requests concurrently
+    # Fire all requests concurrently
     async def generate_one(slot, index):
         prompt = build_prompt(slot)
+        t0 = time.perf_counter()
         try:
             result_bytes = await adapter.edit_image(image_bytes, prompt, mime_type)
+            timings[index] = (time.perf_counter() - t0) * 1000
             filename = f"slot_{index:02d}_h{slot.hour}.png"
             filepath = job_dir / filename
             filepath.write_bytes(result_bytes)
@@ -134,11 +147,11 @@ async def generate_variants(
                 "status": "success",
             }
         except Exception as e:
-            err_msg = str(e)
+            timings[index] = (time.perf_counter() - t0) * 1000
+            err_msg = clean_error(e)
             logger.warning(
                 "Generation failed for slot %s (hour %s): %s",
                 index, slot.hour, err_msg,
-                exc_info=True,
             )
             return {
                 "index": index,
@@ -151,11 +164,41 @@ async def generate_variants(
 
     tasks = [generate_one(slot, i) for i, slot in enumerate(slots)]
     results = await asyncio.gather(*tasks)
+    total_ms = (time.perf_counter() - run_start) * 1000
 
     # Sort by index
     results.sort(key=lambda r: r["index"])
 
     success_count = sum(1 for r in results if r["status"] == "success")
+
+    run = {
+        "job_id": job_id,
+        "model_id": info.id,
+        "model_name": info.name,
+        "provider": info.provider,
+        "started_at": started_at,
+        "total_ms": round(total_ms, 1),
+        "frames_requested": len(slots),
+        "frames_ok": success_count,
+        "frames_failed": len(slots) - success_count,
+        "cost_per_image": info.cost_per_image,
+        "est_cost_usd": round(success_count * info.cost_per_image, 4),
+        "input_bytes": len(image_bytes),
+        "frames": [
+            {
+                "hour": r["hour"],
+                "ms": round(timings.get(r["index"], 0.0), 1),
+                "status": r["status"],
+                "error": r.get("error", ""),
+            }
+            for r in results
+        ],
+    }
+    try:
+        metrics_store.record(run)
+    except OSError:
+        logger.exception("Could not write run metrics")
+    logger.info("run_metrics %s", json.dumps(run, separators=(",", ":")))
 
     return {
         "job_id": job_id,
@@ -275,6 +318,40 @@ STATIC_DIR = Path(__file__).parent / "static"
 @app.get("/")
 async def index():
     return FileResponse(STATIC_DIR / "index.html")
+
+
+
+# ──────────────────────────────────────────────
+# Admin: backend-only run metrics
+# ──────────────────────────────────────────────
+
+def _require_admin(request: Request) -> None:
+    """404 unless ADMIN_TOKEN is configured; 403 unless the header matches."""
+    expected = os.environ.get("ADMIN_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=404, detail="Not found")
+    supplied = request.headers.get("X-Admin-Token", "")
+    if not hmac.compare_digest(supplied.encode(), expected.encode()):
+        raise HTTPException(status_code=403, detail="Forbidden")
+
+
+@app.get("/api/admin/runs")
+async def admin_runs(request: Request):
+    _require_admin(request)
+    runs = metrics_store.all()
+    runs.sort(key=lambda r: r.get("started_at", ""), reverse=True)
+    return runs
+
+
+@app.get("/api/admin/summary")
+async def admin_summary(request: Request):
+    _require_admin(request)
+    return metrics_store.summary()
+
+
+@app.get("/admin")
+async def admin_page():
+    return FileResponse(STATIC_DIR / "admin.html", headers={"Cache-Control": "no-store"})
 
 
 if __name__ == "__main__":
