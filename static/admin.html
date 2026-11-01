@@ -32,6 +32,11 @@
   .bad { color: var(--bad); }
   .errs { font: .75rem/1.5 ui-monospace, monospace; color: var(--bad); }
   .hidden { display: none; }
+  .thumbs { display: flex; gap: 6px; }
+  .thumbs figure { margin: 0; }
+  .thumbs a, .thumbs .none { display: block; width: 120px; aspect-ratio: 4/3; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: var(--surface); }
+  .thumbs img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .thumbs figcaption { font: .62rem/1.4 ui-monospace, monospace; color: var(--text-dim); margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -57,7 +62,7 @@
     <h2>Runs, newest first</h2>
     <div class="wrap"><table>
       <thead><tr>
-        <th>Model</th><th>Started (UTC)</th><th>Job</th><th>OK / requested</th>
+        <th>Model</th><th>Original · frame</th><th>Started (UTC)</th><th>Job</th><th>OK / requested</th>
         <th>Run time</th><th>Est. cost</th><th>Failures</th>
       </tr></thead>
       <tbody id="runs"></tbody>
@@ -80,6 +85,28 @@
     if (cls) td.className = cls;
     tr.appendChild(td);
     return td;
+  }
+
+  function thumb(url, caption) {
+    var fig = document.createElement('figure');
+    if (url) {
+      var a = document.createElement('a');
+      a.href = url; a.target = '_blank'; a.rel = 'noopener';
+      var img = document.createElement('img');
+      img.src = url; img.loading = 'lazy'; img.alt = caption;
+      img.onerror = function () { a.textContent = ''; a.className = 'none'; };
+      a.appendChild(img); fig.appendChild(a);
+    } else {
+      var none = document.createElement('div'); none.className = 'none'; fig.appendChild(none);
+    }
+    var cap = document.createElement('figcaption'); cap.textContent = caption; fig.appendChild(cap);
+    return fig;
+  }
+
+  function label(hour) {
+    if (hour === null || hour === undefined) return 'no frame';
+    var h = hour % 12 || 12;
+    return h + ' ' + (hour < 12 ? 'AM' : 'PM');
   }
 
   function get(path, token) {
@@ -112,6 +139,11 @@
     runs.forEach(function (run) {
       var tr = document.createElement('tr');
       cell(tr, run.model_name || run.model_id);
+      var tcell = cell(tr, '');
+      var box = document.createElement('div'); box.className = 'thumbs';
+      box.appendChild(thumb(run.original_url, 'original'));
+      box.appendChild(thumb(run.thumb_url, label(run.thumb_hour)));
+      tcell.appendChild(box);
       cell(tr, (run.started_at || '').replace('T', ' ').slice(0, 19), 'num');
       cell(tr, run.job_id, 'num');
       cell(tr, run.frames_ok + ' / ' + run.frames_requested, run.frames_failed ? 'num bad' : 'num');
@@ -132,7 +164,7 @@
         try { sessionStorage.setItem(KEY, token); } catch (e) {}
         render(res[0], res[1]);
         document.getElementById('data').classList.remove('hidden');
-        $msg.textContent = res[1].length + ' runs. Metrics reset when the server redeploys; every run is also in the server log as a run_metrics line.';
+        $msg.textContent = res[1].length + ' runs. Metrics and images reset when the server redeploys; every run is also in the server log as a run_metrics line.';
       })
       .catch(function (err) {
         $msg.className = 'msg err'; $msg.textContent = err.message;

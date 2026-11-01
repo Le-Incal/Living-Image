@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from prompts import generate_time_slots, build_prompt
+from prompts import generate_time_slots, build_prompt, SOLAR_NOON_HOUR
 from adapters.base import AdapterRegistry
 from metrics import RunMetricsStore, clean_error
 
@@ -171,6 +171,10 @@ async def generate_variants(
 
     success_count = sum(1 for r in results if r["status"] == "success")
 
+    # Representative frame for the admin view: solar noon, else nearest success
+    ok = [r for r in results if r["status"] == "success"]
+    thumb = min(ok, key=lambda r: (abs(r["hour"] - SOLAR_NOON_HOUR), r["hour"])) if ok else None
+
     run = {
         "job_id": job_id,
         "model_id": info.id,
@@ -184,6 +188,9 @@ async def generate_variants(
         "cost_per_image": info.cost_per_image,
         "est_cost_usd": round(success_count * info.cost_per_image, 4),
         "input_bytes": len(image_bytes),
+        "original_url": f"/api/images/{job_id}/original.png",
+        "thumb_hour": thumb["hour"] if thumb else None,
+        "thumb_url": thumb["image_url"] if thumb else None,
         "frames": [
             {
                 "hour": r["hour"],
