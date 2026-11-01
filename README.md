@@ -4,15 +4,16 @@ Transform static architectural renders into dynamic time-of-day visualizations. 
 
 ## What This Is
 
-This is a test harness to evaluate whether AI image editing APIs can reliably relight architectural images while preserving structural fidelity. We're testing three models side by side:
+This is a test harness to evaluate whether AI image editing APIs can reliably relight architectural images while preserving structural fidelity. Four models from two providers sit behind one adapter interface:
 
-| Model | Provider | Cost/Image | Key Strength |
-|-------|----------|-----------|--------------|
-| Nano Banana (Gemini 2.5 Flash Image) | Google | ~$0.039 | 3D spatial understanding, scene preservation |
-| GPT-4o Image | OpenAI | ~$0.08 | Battle-tested editing, massive training data |
-| Grok Imagine (Aurora) | xAI | ~$0.10 | Fast generation, chainable edits |
+| Model | Provider | Est. cost/image | Est. cost/run (13) |
+|-------|----------|-----------------|--------------------|
+| Nano Banana 2.1 (default) | Google | $0.034 | $0.44 |
+| Nano Banana Pro | Google | $0.134 | $1.74 |
+| GPT Image 2.5 Flare | OpenAI | $0.05 | $0.65 |
+| GPT Image 2.5 Sunburst | OpenAI | $0.17 | $2.21 |
 
-A full 12-variant generation costs roughly $0.47 to $1.20 depending on the model.
+Grok Imagine 2.0 (xAI) was tested and removed on Oct 31, 2026. xAI's entry-tier limit is 6 to 12 image requests per second; a run sends 13 at once, so every Grok run lost frames (7 of 13 returned in testing).
 
 ## Quick Start
 
@@ -67,7 +68,6 @@ living-image-crossfade/
 │   ├── base.py            # Abstract adapter interface and model registry
 │   ├── gemini.py          # Google Gemini / Nano Banana adapter
 │   ├── openai_adapter.py  # OpenAI GPT-4o image editing adapter
-│   └── xai.py             # xAI Grok Imagine adapter
 ├── static/
 │   └── index.html         # Frontend UI (upload, slider, crossfade viewer)
 ├── tests/

@@ -20,7 +20,7 @@ import threading
 from pathlib import Path
 
 MAX_ERROR_CHARS = 300
-_SECRET_ENV_KEYS = ("GEMINI_API_KEY", "OPENAI_API_KEY", "XAI_API_KEY", "GROK_API_KEY", "ADMIN_TOKEN")
+_SECRET_ENV_KEYS = ("GEMINI_API_KEY", "OPENAI_API_KEY", "ADMIN_TOKEN")
 
 
 def clean_error(text: str) -> str:

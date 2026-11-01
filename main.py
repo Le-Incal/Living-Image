@@ -57,8 +57,6 @@ async def keys_check():
     return {
         "GEMINI_API_KEY": bool(os.environ.get("GEMINI_API_KEY")),
         "OPENAI_API_KEY": bool(os.environ.get("OPENAI_API_KEY")),
-        "XAI_API_KEY": bool(os.environ.get("XAI_API_KEY")),
-        "GROK_API_KEY": bool(os.environ.get("GROK_API_KEY")),
     }
 
 

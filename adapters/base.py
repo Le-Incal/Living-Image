@@ -26,7 +26,7 @@ class ModelInfo:
     """Metadata about an available model."""
     id: str                  # unique key for API/frontend
     name: str                # display name
-    provider: str            # "gemini", "openai", "xai"
+    provider: str            # "gemini", "openai"
     cost_per_image: float    # USD per generated image (estimate)
     api_model: str = ""      # exact model string sent to the provider
     env_key: str = ""        # env var holding the provider API key
@@ -86,6 +86,8 @@ class CatalogEntry:
 
 
 # Latest image-editing models per provider (verified Oct 2026).
+# Grok Imagine (xAI) was removed Oct 31, 2026: its entry-tier limit of 6-12
+# image requests per second cannot take a 13-frame burst, so runs lost frames.
 # Costs are per-image estimates at ~1K resolution, used for the UI cost hint.
 MODEL_CATALOG: list[CatalogEntry] = [
     CatalogEntry("nano-banana-2.1", "Nano Banana 2.1", "gemini",
@@ -96,8 +98,6 @@ MODEL_CATALOG: list[CatalogEntry] = [
                  "gpt-image-2.5-sunburst", 0.17, options={"quality": "high"}),
     CatalogEntry("gpt-image-2.5-flare", "GPT Image 2.5 Flare", "openai",
                  "gpt-image-2.5-flare", 0.05, options={"quality": "medium"}),
-    CatalogEntry("grok-imagine-2.0", "Grok Imagine 2.0", "xai",
-                 "grok-imagine-image-2.0", 0.05),
 ]
 
 # Old ids that older clients may still send
@@ -107,9 +107,8 @@ LEGACY_ALIASES = {"gemini": "nano-banana-2.1"}
 def build_adapter(entry: CatalogEntry) -> BaseAdapter:
     from .gemini import GeminiAdapter
     from .openai_adapter import OpenAIAdapter
-    from .xai import XAIAdapter
 
-    cls = {"gemini": GeminiAdapter, "openai": OpenAIAdapter, "xai": XAIAdapter}[entry.provider]
+    cls = {"gemini": GeminiAdapter, "openai": OpenAIAdapter}[entry.provider]
     return cls(entry)
 
 
