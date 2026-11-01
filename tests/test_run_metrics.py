@@ -265,3 +265,56 @@ class TestAdminPage:
 
     def test_main_app_does_not_link_to_admin(self):
         assert "/admin" not in (STATIC / "index.html").read_text()
+
+
+# ──────────────────────────────────────────────
+# Thumbnails: original plus one representative frame per run
+# ──────────────────────────────────────────────
+
+class TestRunThumbnail:
+
+    def test_run_records_original_url(self, client, store, xai_key, monkeypatch):
+        _patch_post(monkeypatch)
+        job = _generate(client).json()["job_id"]
+        run = store.all()[0]
+        assert run["original_url"] == f"/api/images/{job}/original.png"
+
+    def test_thumbnail_is_solar_noon_frame(self, client, store, xai_key, monkeypatch):
+        _patch_post(monkeypatch)
+        job = _generate(client).json()["job_id"]
+        run = store.all()[0]
+        assert run["thumb_hour"] == 13
+        assert run["thumb_url"] == f"/api/images/{job}/slot_05_h13.png"
+
+    def test_thumbnail_falls_back_to_nearest_successful_hour(self, client, store, xai_key, monkeypatch):
+        # Every 2nd call fails: 9, 11, 13, 15, 17, 19 fail. 12 and 14 tie; earlier wins.
+        _patch_post(monkeypatch, fail_every=2)
+        _generate(client)
+        run = store.all()[0]
+        assert run["thumb_hour"] == 12
+        assert run["thumb_url"].endswith("slot_04_h12.png")
+
+    def test_no_thumbnail_when_every_frame_failed(self, client, store, xai_key, monkeypatch):
+        _patch_post(monkeypatch, fail_every=1)
+        _generate(client)
+        run = store.all()[0]
+        assert run["thumb_url"] is None
+        assert run["thumb_hour"] is None
+
+    def test_public_response_still_has_no_thumbnail_fields(self, client, store, xai_key, monkeypatch):
+        _patch_post(monkeypatch)
+        body = _generate(client).json()
+        assert "thumb_url" not in body and "thumb_hour" not in body
+
+
+class TestAdminPageThumbnails:
+
+    def test_admin_page_renders_thumbnails(self):
+        html = (STATIC / "admin.html").read_text()
+        assert "thumb_url" in html
+        assert "original_url" in html
+        assert "createElement('img')" in html
+
+    def test_admin_page_never_uses_inner_html(self):
+        """Run data includes provider error text; render with textContent only."""
+        assert "innerHTML" not in (STATIC / "admin.html").read_text()
