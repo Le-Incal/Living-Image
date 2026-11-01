@@ -31,7 +31,8 @@
   .num { font-variant-numeric: tabular-nums; }
   .bad { color: var(--bad); }
   .errs { font: .75rem/1.5 ui-monospace, monospace; color: var(--bad); }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
+  #logout { margin-bottom: 8px; }
   .thumbs { display: flex; gap: 6px; }
   .thumbs figure { margin: 0; }
   .thumbs a, .thumbs .none { display: block; width: 120px; aspect-ratio: 4/3; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; background: var(--surface); }
@@ -43,10 +44,11 @@
   <h1>Run metrics</h1>
   <p class="sub">Backend diagnostics for every generation run. Not linked from the app.</p>
 
-  <form id="auth">
+  <form id="auth" class="hidden">
     <input id="token" type="password" placeholder="Admin token" autocomplete="off">
     <button type="submit">Load</button>
   </form>
+  <button type="button" id="logout" class="hidden">Log out</button>
   <p class="msg" id="msg"></p>
 
   <section id="data" class="hidden">
@@ -113,7 +115,7 @@
     return fetch(path, { headers: { 'X-Admin-Token': token }, cache: 'no-store' })
       .then(function (r) {
         if (r.status === 404) throw new Error('Admin is disabled: set ADMIN_TOKEN on the server.');
-        if (r.status === 403) throw new Error('Wrong token.');
+        if (r.status === 403) { var e = new Error('Wrong token.'); e.status = 403; throw e; }
         if (!r.ok) throw new Error('Request failed: ' + r.status);
         return r.json();
       });
@@ -157,28 +159,57 @@
     });
   }
 
+  var $auth = document.getElementById('auth');
+  var $logout = document.getElementById('logout');
+  var $data = document.getElementById('data');
+
+  function showSignedIn() {
+    $auth.classList.add('hidden');
+    $token.value = '';
+    $logout.classList.remove('hidden');
+    $data.classList.remove('hidden');
+  }
+
+  function showSignedOut() {
+    $logout.classList.add('hidden');
+    $data.classList.add('hidden');
+    $auth.classList.remove('hidden');
+    $token.focus();
+  }
+
+  function logOut() {
+    try { sessionStorage.removeItem(KEY); } catch (e) {}
+    document.getElementById('summary').textContent = '';
+    document.getElementById('runs').textContent = '';
+    showSignedOut();
+    $msg.className = 'msg'; $msg.textContent = 'Logged out.';
+  }
+
   function load(token) {
     $msg.className = 'msg'; $msg.textContent = 'Loading...';
     Promise.all([get('/api/admin/summary', token), get('/api/admin/runs', token)])
       .then(function (res) {
         try { sessionStorage.setItem(KEY, token); } catch (e) {}
         render(res[0], res[1]);
-        document.getElementById('data').classList.remove('hidden');
-        $msg.textContent = res[1].length + ' runs. Metrics and images reset when the server redeploys; every run is also in the server log as a run_metrics line.';
+        showSignedIn();
+        $msg.textContent = res[1].length + ' runs. Reload the page to refresh. Metrics and images reset when the server redeploys; every run is also in the server log as a run_metrics line.';
       })
       .catch(function (err) {
+        if (err.status === 403) { try { sessionStorage.removeItem(KEY); } catch (e) {} }
+        showSignedOut();
         $msg.className = 'msg err'; $msg.textContent = err.message;
       });
   }
 
-  document.getElementById('auth').addEventListener('submit', function (e) {
+  $auth.addEventListener('submit', function (e) {
     e.preventDefault();
     if ($token.value) load($token.value);
   });
+  $logout.addEventListener('click', logOut);
 
   var saved = null;
   try { saved = sessionStorage.getItem(KEY); } catch (e) {}
-  if (saved) { $token.value = saved; load(saved); }
+  if (saved) { load(saved); } else { showSignedOut(); }
 })();
 </script>
 </body>
