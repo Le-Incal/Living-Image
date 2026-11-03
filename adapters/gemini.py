@@ -5,6 +5,8 @@ Calls generateContent on the configured Gemini image model.
 The API key is sent in the x-goog-api-key header, never in the URL.
 """
 
+from __future__ import annotations
+
 import base64
 import os
 
@@ -27,6 +29,7 @@ class GeminiAdapter(BaseAdapter):
         return ModelInfo(
             id=e.id, name=e.name, provider="gemini", cost_per_image=e.cost_per_image,
             api_model=e.api_model, env_key=ENV_KEY, default=e.default,
+            prices=dict(e.prices),
         )
 
     async def edit_image(
@@ -35,6 +38,15 @@ class GeminiAdapter(BaseAdapter):
         prompt: str,
         mime_type: str = "image/png",
     ) -> bytes:
+        image, _ = await self.edit_image_with_usage(image_bytes, prompt, mime_type)
+        return image
+
+    async def edit_image_with_usage(
+        self,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/png",
+    ) -> tuple[bytes, dict]:
         api_key = os.environ.get(ENV_KEY, "")
         if not api_key:
             raise ValueError(f"{ENV_KEY} environment variable not set")
@@ -70,6 +82,40 @@ class GeminiAdapter(BaseAdapter):
 
         for part in candidates[0].get("content", {}).get("parts", []):
             if "inlineData" in part:
-                return base64.b64decode(part["inlineData"]["data"])
+                return base64.b64decode(part["inlineData"]["data"]), _usage(data.get("usageMetadata"))
 
         raise RuntimeError("No image found in Gemini response")
+
+
+def _by_modality(details) -> dict:
+    out = {}
+    for d in details or []:
+        out[d.get("modality", "").upper()] = out.get(d.get("modality", "").upper(), 0) + d.get("tokenCount", 0)
+    return out
+
+
+def _usage(meta: dict | None) -> dict:
+    """Normalize Gemini usageMetadata. Thinking tokens bill at the text-output rate."""
+    if not meta:
+        return {}
+    prompt = meta.get("promptTokenCount", 0)
+    cands = meta.get("candidatesTokenCount", 0)
+    thoughts = meta.get("thoughtsTokenCount", 0)
+    pin = _by_modality(meta.get("promptTokensDetails"))
+    pout = _by_modality(meta.get("candidatesTokensDetails"))
+    if pin:
+        in_text, in_image = pin.get("TEXT", 0), pin.get("IMAGE", 0)
+    else:
+        in_text, in_image = prompt, 0
+    if pout:
+        out_image, out_text = pout.get("IMAGE", 0), pout.get("TEXT", 0)
+    else:
+        out_image, out_text = cands, 0
+    return {
+        "input_tokens": prompt,
+        "output_tokens": cands + thoughts,
+        "input_text_tokens": in_text,
+        "input_image_tokens": in_image,
+        "output_image_tokens": out_image,
+        "output_text_tokens": out_text + thoughts,
+    }

@@ -5,6 +5,8 @@ Uses the Images API edit endpoint (image in + prompt -> image out)
 with the configured GPT Image 2.5 model (Sunburst or Flare).
 """
 
+from __future__ import annotations
+
 import base64
 import os
 
@@ -35,6 +37,7 @@ class OpenAIAdapter(BaseAdapter):
         return ModelInfo(
             id=e.id, name=e.name, provider="openai", cost_per_image=e.cost_per_image,
             api_model=e.api_model, env_key=ENV_KEY, default=e.default,
+            prices=dict(e.prices),
         )
 
     async def edit_image(
@@ -43,6 +46,15 @@ class OpenAIAdapter(BaseAdapter):
         prompt: str,
         mime_type: str = "image/png",
     ) -> bytes:
+        image, _ = await self.edit_image_with_usage(image_bytes, prompt, mime_type)
+        return image
+
+    async def edit_image_with_usage(
+        self,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/png",
+    ) -> tuple[bytes, dict]:
         api_key = os.environ.get(ENV_KEY, "")
         if not api_key:
             raise ValueError(f"{ENV_KEY} environment variable not set")
@@ -70,7 +82,7 @@ class OpenAIAdapter(BaseAdapter):
 
         results = data.get("data", [])
         if results and results[0].get("b64_json"):
-            return base64.b64decode(results[0]["b64_json"])
+            return base64.b64decode(results[0]["b64_json"]), _usage(data.get("usage"))
 
         raise RuntimeError("No image found in OpenAI response")
 
@@ -78,3 +90,24 @@ class OpenAIAdapter(BaseAdapter):
 def _openai_entries():
     from .base import MODEL_CATALOG
     return [e for e in MODEL_CATALOG if e.provider == "openai"]
+
+
+def _usage(u: dict | None) -> dict:
+    """Normalize Images API usage. Output tokens are image tokens."""
+    if not u:
+        return {}
+    ind = u.get("input_tokens_details") or {}
+    outd = u.get("output_tokens_details") or {}
+    inp, out = u.get("input_tokens", 0), u.get("output_tokens", 0)
+    in_text = ind.get("text_tokens", inp if not ind else 0)
+    in_image = ind.get("image_tokens", 0)
+    out_image = outd.get("image_tokens", out)
+    out_text = outd.get("text_tokens", 0)
+    return {
+        "input_tokens": inp,
+        "output_tokens": out,
+        "input_text_tokens": in_text,
+        "input_image_tokens": in_image,
+        "output_image_tokens": out_image,
+        "output_text_tokens": out_text,
+    }

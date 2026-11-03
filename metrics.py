@@ -42,6 +42,12 @@ def _percentile(values: list[float], pct: float) -> float:
     return float(ordered[rank - 1])
 
 
+def _mean_of(runs: list[dict], key: str) -> float | None:
+    """Mean over runs that recorded `key`; None when none did (older runs)."""
+    vals = [r[key] for r in runs if key in r]
+    return statistics.fmean(vals) if vals else None
+
+
 class RunMetricsStore:
     """Append-only JSONL store of run records."""
 
@@ -95,5 +101,8 @@ class RunMetricsStore:
                 "median_frame_ms": statistics.median(frame_ms) if frame_ms else 0.0,
                 "p95_frame_ms": _percentile(frame_ms, 95),
                 "mean_cost_usd": statistics.fmean(r.get("est_cost_usd", 0) for r in runs),
+                "mean_true_cost_usd": _mean_of(runs, "cost_usd"),
+                "mean_input_tokens": _mean_of(runs, "input_tokens"),
+                "mean_output_tokens": _mean_of(runs, "output_tokens"),
             })
         return rows

@@ -88,7 +88,8 @@ Every generation run records per-frame timing, failed frames with their error, a
 - Open `/admin` (not linked from the app), enter the token. It is sent as an `X-Admin-Token` header, never in the URL.
 - `GET /api/admin/summary`: per-model runs, failure rate, mean run time, median and p95 frame time, mean cost per run
 - `GET /api/admin/runs`: every run, newest first, with per-frame detail
-- The metrics file resets on redeploy. Each run is also logged as a `run_metrics {...}` line, which Railway keeps.
+- Each frame records input and output tokens from the provider's response, split into text and image tokens (Gemini thinking tokens count as text output). True cost per run is those tokens at each model's published per-1M-token rates, set in `MODEL_CATALOG`; the catalog per-image estimate is kept alongside for comparison.
+- Runs and images reset on redeploy unless they live on a volume: attach a Railway Volume at `/data` and set `GENERATED_DIR=/data/generated_images`. Each run is also logged as a `run_metrics {...}` line, which Railway keeps.
 
 ## API Endpoints
 

@@ -56,7 +56,7 @@
     <div class="wrap"><table>
       <thead><tr>
         <th>Model</th><th>Runs</th><th>Frames</th><th>Failed</th><th>Failure rate</th>
-        <th>Mean run</th><th>Median frame</th><th>p95 frame</th><th>Mean cost / run</th>
+        <th>Mean run</th><th>Median frame</th><th>p95 frame</th><th>Tokens in / out</th><th>True cost / run</th><th>Est. cost / run</th>
       </tr></thead>
       <tbody id="summary"></tbody>
     </table></div>
@@ -65,7 +65,7 @@
     <div class="wrap"><table>
       <thead><tr>
         <th>Model</th><th>Original · frame</th><th>Started</th><th>Job</th><th>OK / requested</th>
-        <th>Run time</th><th>Est. cost</th><th>Failures</th>
+        <th>Run time</th><th>Tokens in / out</th><th>True cost</th><th>Est. cost</th><th>Failures</th>
       </tr></thead>
       <tbody id="runs"></tbody>
     </table></div>
@@ -79,6 +79,8 @@
 
   function secs(ms) { return (ms / 1000).toFixed(1) + 's'; }
   function usd(v) { return '$' + Number(v || 0).toFixed(2); }
+  function usdOrDash(v) { return (v === null || v === undefined) ? '-' : '$' + Number(v).toFixed(3); }
+  function toks(a, b) { return (a === null || a === undefined) ? '-' : Math.round(a).toLocaleString() + ' / ' + Math.round(b || 0).toLocaleString(); }
   function pct(v) { return (v * 100).toFixed(0) + '%'; }
 
   function cell(tr, text, cls) {
@@ -145,6 +147,8 @@
       cell(tr, secs(row.mean_run_ms), 'num');
       cell(tr, secs(row.median_frame_ms), 'num');
       cell(tr, secs(row.p95_frame_ms), 'num');
+      cell(tr, toks(row.mean_input_tokens, row.mean_output_tokens), 'num');
+      cell(tr, usdOrDash(row.mean_true_cost_usd), 'num');
       cell(tr, usd(row.mean_cost_usd), 'num');
       s.appendChild(tr);
     });
@@ -162,6 +166,8 @@
       cell(tr, run.job_id, 'num');
       cell(tr, run.frames_ok + ' / ' + run.frames_requested, run.frames_failed ? 'num bad' : 'num');
       cell(tr, secs(run.total_ms || 0), 'num');
+      cell(tr, toks(run.input_tokens, run.output_tokens), 'num');
+      cell(tr, usdOrDash(run.cost_usd), 'num');
       cell(tr, usd(run.est_cost_usd), 'num');
       var failures = (run.frames || []).filter(function (f) { return f.status !== 'success'; })
         .map(function (f) { return f.hour + ':00  ' + f.error; }).join('\n');

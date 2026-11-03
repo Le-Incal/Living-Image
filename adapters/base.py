@@ -21,6 +21,25 @@ def resolve_key(env_key: str, alt_env_keys: tuple = ()) -> str:
     return ""
 
 
+USAGE_KEYS = (
+    "input_tokens", "output_tokens",
+    "input_text_tokens", "input_image_tokens",
+    "output_image_tokens", "output_text_tokens",
+)
+
+
+def cost_from_usage(usage: dict, prices: dict) -> float:
+    """USD for one call: each token type at its per-1M-token rate."""
+    if not usage or not prices:
+        return 0.0
+    return (
+        usage.get("input_text_tokens", 0) * prices.get("text_in", 0)
+        + usage.get("input_image_tokens", 0) * prices.get("image_in", 0)
+        + usage.get("output_image_tokens", 0) * prices.get("image_out", 0)
+        + usage.get("output_text_tokens", 0) * prices.get("text_out", 0)
+    ) / 1_000_000
+
+
 @dataclass
 class ModelInfo:
     """Metadata about an available model."""
@@ -32,6 +51,7 @@ class ModelInfo:
     env_key: str = ""        # env var holding the provider API key
     default: bool = False    # preselected in the UI
     alt_env_keys: tuple = () # other accepted env var names for the same key
+    prices: dict = field(default_factory=dict)  # USD per 1M tokens: text_in, image_in, image_out, text_out
 
     @property
     def available(self) -> bool:
@@ -73,6 +93,15 @@ class BaseAdapter(ABC):
         """
         ...
 
+    async def edit_image_with_usage(
+        self,
+        image_bytes: bytes,
+        prompt: str,
+        mime_type: str = "image/png",
+    ) -> tuple[bytes, dict]:
+        """Like edit_image, plus normalized token usage (empty if unknown)."""
+        return await self.edit_image(image_bytes, prompt, mime_type), {}
+
 
 @dataclass
 class CatalogEntry:
@@ -83,21 +112,28 @@ class CatalogEntry:
     cost_per_image: float
     default: bool = False
     options: dict = field(default_factory=dict)  # provider-specific request options
+    prices: dict = field(default_factory=dict)   # USD per 1M tokens
 
 
 # Latest image-editing models per provider (verified Oct 2026).
 # Grok Imagine (xAI) was removed Oct 31, 2026: its entry-tier limit of 6-12
 # image requests per second cannot take a 13-frame burst, so runs lost frames.
-# Costs are per-image estimates at ~1K resolution, used for the UI cost hint.
+# cost_per_image is a ~1K-resolution estimate for the UI hint. prices are the
+# published per-1M-token rates used to compute true run cost from usage
+# (checked Nov 3, 2026; the OpenAI rates reproduce that day's bill).
 MODEL_CATALOG: list[CatalogEntry] = [
     CatalogEntry("nano-banana-2.1", "Nano Banana 2.1", "gemini",
-                 "gemini-nano-banana-2.1", 0.034, default=True),
+                 "gemini-nano-banana-2.1", 0.034, default=True,
+                 prices={"text_in": 1.50, "image_in": 1.50, "image_out": 30.0, "text_out": 7.50}),
     CatalogEntry("nano-banana-pro", "Nano Banana Pro", "gemini",
-                 "gemini-3-pro-image", 0.134),
+                 "gemini-3-pro-image", 0.134,
+                 prices={"text_in": 2.0, "image_in": 2.0, "image_out": 120.0, "text_out": 12.0}),
     CatalogEntry("gpt-image-2.5-sunburst", "GPT Image 2.5 Sunburst", "openai",
-                 "gpt-image-2.5-sunburst", 0.17, options={"quality": "high"}),
+                 "gpt-image-2.5-sunburst", 0.17, options={"quality": "high"},
+                 prices={"text_in": 5.0, "image_in": 8.0, "image_out": 30.0, "text_out": 0.0}),
     CatalogEntry("gpt-image-2.5-flare", "GPT Image 2.5 Flare", "openai",
-                 "gpt-image-2.5-flare", 0.05, options={"quality": "medium"}),
+                 "gpt-image-2.5-flare", 0.05, options={"quality": "medium"},
+                 prices={"text_in": 5.0, "image_in": 8.0, "image_out": 30.0, "text_out": 0.0}),
 ]
 
 # Old ids that older clients may still send

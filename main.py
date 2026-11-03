@@ -22,14 +22,25 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
 from prompts import generate_time_slots, build_prompt
-from adapters.base import AdapterRegistry
+from adapters.base import AdapterRegistry, USAGE_KEYS, cost_from_usage
 from metrics import RunMetricsStore, clean_error
 
 app = FastAPI(title="Living Image Crossfade Test Harness")
 
+def resolve_generated_dir() -> Path:
+    """Where runs and images live. Point GENERATED_DIR at a mounted volume
+    (e.g. /data/generated_images on Railway) so they survive redeploys."""
+    d = Path(os.environ.get("GENERATED_DIR") or (Path(__file__).parent / "generated_images"))
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def resolve_metrics_path(generated_dir: Path) -> Path:
+    return Path(os.environ.get("METRICS_PATH") or (generated_dir / "run_metrics.jsonl"))
+
+
 # Directory to store generated images
-GENERATED_DIR = Path(__file__).parent / "generated_images"
-GENERATED_DIR.mkdir(exist_ok=True)
+GENERATED_DIR = resolve_generated_dir()
 
 # Adapter registry (singleton)
 registry = AdapterRegistry()
@@ -38,9 +49,7 @@ registry = AdapterRegistry()
 ADMIN_THUMB_HOUR = 17
 
 # Backend-only run metrics (read via /api/admin/*)
-metrics_store = RunMetricsStore(
-    os.environ.get("METRICS_PATH") or (GENERATED_DIR / "run_metrics.jsonl")
-)
+metrics_store = RunMetricsStore(resolve_metrics_path(GENERATED_DIR))
 
 
 @app.get("/health")
@@ -127,6 +136,7 @@ async def generate_variants(
 
     slots = generate_time_slots()
     timings: dict[int, float] = {}
+    usages: dict[int, dict] = {}
     started_at = datetime.now(timezone.utc).isoformat()
     run_start = time.perf_counter()
 
@@ -135,8 +145,9 @@ async def generate_variants(
         prompt = build_prompt(slot)
         t0 = time.perf_counter()
         try:
-            result_bytes = await adapter.edit_image(image_bytes, prompt, mime_type)
+            result_bytes, usage = await adapter.edit_image_with_usage(image_bytes, prompt, mime_type)
             timings[index] = (time.perf_counter() - t0) * 1000
+            usages[index] = usage or {}
             filename = f"slot_{index:02d}_h{slot.hour}.png"
             filepath = job_dir / filename
             filepath.write_bytes(result_bytes)
@@ -198,10 +209,15 @@ async def generate_variants(
                 "ms": round(timings.get(r["index"], 0.0), 1),
                 "status": r["status"],
                 "error": r.get("error", ""),
+                **{k: usages.get(r["index"], {}).get(k, 0) for k in USAGE_KEYS},
+                "cost_usd": round(cost_from_usage(usages.get(r["index"], {}), info.prices), 6),
             }
             for r in results
         ],
     }
+    for k in USAGE_KEYS:
+        run[k] = sum(f[k] for f in run["frames"])
+    run["cost_usd"] = round(sum(f["cost_usd"] for f in run["frames"]), 6)
     try:
         metrics_store.record(run)
     except OSError:
