@@ -1051,6 +1051,11 @@ async function generateVariants(file, modelId) {
   const formData = new FormData();
   formData.append('image', file);
   formData.append('model_id', modelId);
+  // Benchmark options with no UI control, read from the page URL
+  for (const name of ['prompt_variant', 'quality']) {
+    const v = pageOption(name);
+    if (v) formData.append(name, v);
+  }
 
   try {
     const resp = await fetch('/api/generate', {
@@ -1413,10 +1418,17 @@ $btnReset.addEventListener('click', () => {
   $fileInput.value = '';
 });
 
+// ─── Benchmark options from the URL (?prompt_variant=v3-glow&quality=xhigh) ───
+function pageOption(name) {
+  try { return new URLSearchParams(window.location.search).get(name) || ''; }
+  catch (e) { return ''; }
+}
+
 // ─── Prompt preview ───
 $btnPrompts.addEventListener('click', async () => {
   try {
-    const resp = await fetch('/api/prompt-preview');
+    const v = pageOption('prompt_variant');
+    const resp = await fetch('/api/prompt-preview' + (v ? '?variant=' + encodeURIComponent(v) : ''));
     const prompts = await resp.json();
     $promptList.innerHTML = '';
     prompts.forEach(p => {

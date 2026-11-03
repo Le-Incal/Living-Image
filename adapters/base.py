@@ -98,8 +98,10 @@ class BaseAdapter(ABC):
         image_bytes: bytes,
         prompt: str,
         mime_type: str = "image/png",
+        options: dict | None = None,
     ) -> tuple[bytes, dict]:
-        """Like edit_image, plus normalized token usage (empty if unknown)."""
+        """Like edit_image, plus normalized token usage (empty if unknown).
+        options carries per-run request overrides, such as OpenAI quality."""
         return await self.edit_image(image_bytes, prompt, mime_type), {}
 
 

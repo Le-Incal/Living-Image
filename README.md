@@ -58,12 +58,46 @@ Every statement in a prompt comes from one solar model, so a prompt cannot contr
 
 Click "View prompts" in the UI to inspect the full prompt text for each time slot.
 
+### Prompt v3 and test variants
+
+v3 (`prompts_v3.py`, the default) keeps the same solar model and answers the second-round reviews of v2:
+
+- Direction as a camera-relative clock reading in half-hour steps plus graded words ("slightly", "partly", "halfway"), so every hour reads differently. v2's eight 45-degree sectors gave 9, 10 and 11 AM identical words
+- AHEAD and BEHIND defined relative to the camera
+- The render's baked-in lighting is replaced, keeping contact shadows and shading in corners
+- Below 8 degrees: long but soft-edged, low-contrast shadows and a darker image
+- Shadow length and color from the unrounded elevation (8 PM is 13.5 times height)
+- Windows keep their original lit or unlit state, so independently generated frames cannot blink
+- Tree trunks and canopy outlines fixed, no crop, zoom, pan or recenter, white balance and reflectivity kept
+
+| Variant | What changes |
+|---------|--------------|
+| `v2` | The previous prompt, unchanged, as the baseline |
+| `v3` | Default. Even sun motion, 15 degrees per hour |
+| `v3-true-sun` | True solar azimuth (80.3 degrees at 8 AM, fastest near noon) |
+| `v3-glow` | Even warm glow in every window when the sun is below 20 degrees (7 and 8 PM) |
+
+Pick a variant, and for OpenAI models a quality override, through the app URL. There is no UI control:
+
+```
+/?prompt_variant=v3-glow
+/?prompt_variant=v3&quality=xhigh     (OpenAI only: low, medium, high, xhigh, max)
+```
+
+Each run records its variant, quality, input size and per-frame output size, and the admin summary keeps them apart.
+
+### Matched resolution
+
+- OpenAI: an explicit `size` that follows the input (sides divisible by 16, within 2560x1440), instead of `auto`, which gave Sunburst 1678 or 1679 pixel widths. A 2064x1152 render is requested at 2064x1152
+- Gemini: `imageConfig` at `2K` with the nearest supported aspect ratio, instead of the 1K default (1376x768). If a model rejects `imageConfig`, the frame retries once without it
+
 ## Project Structure
 
 ```
 living-image-crossfade/
 ├── server.py              # FastAPI server with all endpoints
-├── prompts.py             # Prompt template system and time slot generation
+├── prompts.py             # Prompt v2 (baseline) and the shared solar model
+├── prompts_v3.py          # Prompt v3 and its test variants
 ├── adapters/
 │   ├── base.py            # Abstract adapter interface and model registry
 │   ├── gemini.py          # Google Gemini / Nano Banana adapter
@@ -98,8 +132,8 @@ Every generation run records per-frame timing, failed frames with their error, a
 | `/health` | GET | Health check |
 | `/api/models` | GET | List available models for the dropdown |
 | `/api/time-slots` | GET | Return the 12 time slots with metadata |
-| `/api/prompt-preview` | GET | Preview all 12 prompts (for debugging) |
-| `/api/generate` | POST | Upload image + model choice, returns 12 variants |
+| `/api/prompt-preview` | GET | Preview all 13 prompts; `?variant=` picks a variant (default v3) |
+| `/api/generate` | POST | Upload image + model choice (+ optional `prompt_variant`, `quality`), returns 13 variants |
 | `/api/images/{job_id}/{filename}` | GET | Serve a generated image |
 
 ## Running Tests

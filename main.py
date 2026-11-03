@@ -7,6 +7,7 @@ across multiple AI model providers.
 
 import asyncio
 import hmac
+import io
 import json
 import logging
 import os
@@ -21,7 +22,8 @@ logger = logging.getLogger(__name__)
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
-from prompts import generate_time_slots, build_prompt
+from prompts import generate_time_slots
+import prompts_v3
 from adapters.base import AdapterRegistry, USAGE_KEYS, cost_from_usage
 from metrics import RunMetricsStore, clean_error
 
@@ -47,6 +49,26 @@ registry = AdapterRegistry()
 
 # Frame shown as each run's thumbnail on the admin page
 ADMIN_THUMB_HOUR = 17
+
+# Per-run OpenAI quality overrides accepted for benchmarking
+OPENAI_QUALITIES = ("low", "medium", "high", "xhigh", "max")
+
+
+def _resolve_variant(variant: str) -> str:
+    variant = variant or prompts_v3.DEFAULT_VARIANT
+    if variant not in prompts_v3.VARIANTS:
+        raise HTTPException(status_code=400, detail=f"Unknown prompt variant: {variant}")
+    return variant
+
+
+def _image_wh(data: bytes) -> str:
+    """'WxH' of an image, or '' if it cannot be read."""
+    try:
+        from PIL import Image
+        w, h = Image.open(io.BytesIO(data)).size
+        return f"{w}x{h}"
+    except Exception:
+        return ""
 
 # Backend-only run metrics (read via /api/admin/*)
 metrics_store = RunMetricsStore(resolve_metrics_path(GENERATED_DIR))
@@ -91,14 +113,15 @@ async def time_slots():
 
 
 @app.get("/api/prompt-preview")
-async def prompt_preview():
-    """Preview all 12 prompts for debugging/iteration."""
-    slots = generate_time_slots()
+async def prompt_preview(variant: str = ""):
+    """Preview all 13 prompts for a variant (default v3)."""
+    variant = _resolve_variant(variant)
+    slots = prompts_v3.generate_slots(variant)
     return [
         {
             "hour": s.hour,
             "label": s.label,
-            "prompt": build_prompt(s),
+            "prompt": prompts_v3.build(s, variant),
         }
         for s in slots
     ]
@@ -108,14 +131,29 @@ async def prompt_preview():
 async def generate_variants(
     image: UploadFile = File(...),
     model_id: str = Form("nano-banana-2.1"),
+    prompt_variant: str = Form(""),
+    quality: str = Form(""),
 ):
     """
     Generate relit variants of the uploaded image with the chosen model.
+
+    prompt_variant and quality are benchmarking options with no UI control:
+    the page passes them through from its URL (?prompt_variant=v3-glow).
     """
     adapter = registry.get_adapter(model_id)
     if adapter is None:
         raise HTTPException(status_code=400, detail=f"Unknown model: {model_id}")
     info = adapter.model_info
+    variant = _resolve_variant(prompt_variant)
+    if quality and (info.provider != "openai" or quality not in OPENAI_QUALITIES):
+        raise HTTPException(
+            status_code=400,
+            detail=f"quality must be one of {', '.join(OPENAI_QUALITIES)}, for OpenAI models only",
+        )
+    effective_quality = (
+        (quality or adapter.entry.options.get("quality", "high")) if info.provider == "openai" else None
+    )
+    options = {"quality": quality} if quality else None
     if not info.available:
         raise HTTPException(
             status_code=400,
@@ -134,20 +172,24 @@ async def generate_variants(
     original_path = job_dir / "original.png"
     original_path.write_bytes(image_bytes)
 
-    slots = generate_time_slots()
+    slots = prompts_v3.generate_slots(variant)
     timings: dict[int, float] = {}
     usages: dict[int, dict] = {}
+    sizes: dict[int, str] = {}
     started_at = datetime.now(timezone.utc).isoformat()
     run_start = time.perf_counter()
 
     # Fire all requests concurrently
     async def generate_one(slot, index):
-        prompt = build_prompt(slot)
+        prompt = prompts_v3.build(slot, variant)
         t0 = time.perf_counter()
         try:
-            result_bytes, usage = await adapter.edit_image_with_usage(image_bytes, prompt, mime_type)
+            result_bytes, usage = await adapter.edit_image_with_usage(
+                image_bytes, prompt, mime_type, options=options,
+            )
             timings[index] = (time.perf_counter() - t0) * 1000
             usages[index] = usage or {}
+            sizes[index] = _image_wh(result_bytes)
             filename = f"slot_{index:02d}_h{slot.hour}.png"
             filepath = job_dir / filename
             filepath.write_bytes(result_bytes)
@@ -192,6 +234,9 @@ async def generate_variants(
         "model_id": info.id,
         "model_name": info.name,
         "provider": info.provider,
+        "prompt_variant": variant,
+        "quality": effective_quality,
+        "input_wh": _image_wh(image_bytes),
         "started_at": started_at,
         "total_ms": round(total_ms, 1),
         "frames_requested": len(slots),
@@ -209,6 +254,7 @@ async def generate_variants(
                 "ms": round(timings.get(r["index"], 0.0), 1),
                 "status": r["status"],
                 "error": r.get("error", ""),
+                "output_wh": sizes.get(r["index"], ""),
                 **{k: usages.get(r["index"], {}).get(k, 0) for k in USAGE_KEYS},
                 "cost_usd": round(cost_from_usage(usages.get(r["index"], {}), info.prices), 6),
             }

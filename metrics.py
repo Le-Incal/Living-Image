@@ -76,13 +76,15 @@ class RunMetricsStore:
         return runs
 
     def summary(self) -> list[dict]:
-        """Aggregate runs per model, in first-seen order."""
-        groups: dict[str, list[dict]] = {}
+        """Aggregate runs per model, prompt variant and quality, in first-seen order.
+        Runs recorded before variants existed used prompt v2."""
+        groups: dict[tuple, list[dict]] = {}
         for run in self.all():
-            groups.setdefault(run.get("model_id", "unknown"), []).append(run)
+            key = (run.get("model_id", "unknown"), run.get("prompt_variant", "v2"), run.get("quality"))
+            groups.setdefault(key, []).append(run)
 
         rows = []
-        for model_id, runs in groups.items():
+        for (model_id, variant, quality), runs in groups.items():
             requested = sum(r.get("frames_requested", 0) for r in runs)
             failed = sum(r.get("frames_failed", 0) for r in runs)
             frame_ms = [
@@ -93,6 +95,8 @@ class RunMetricsStore:
                 "model_id": model_id,
                 "model_name": runs[-1].get("model_name", model_id),
                 "provider": runs[-1].get("provider", ""),
+                "prompt_variant": variant,
+                "quality": quality,
                 "runs": len(runs),
                 "frames_requested": requested,
                 "frames_failed": failed,

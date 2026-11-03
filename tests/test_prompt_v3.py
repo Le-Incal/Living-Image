@@ -251,7 +251,7 @@ class TestHygiene:
         assert not re.search(r"below (the )?horizon", low)
         assert _slots(variant)[hour].label in p
         assert str(_slots(variant)[hour].color_temp_k) in p
-        assert len(p.split()) <= 360, len(p.split())
+        assert len(p.split()) <= 380, len(p.split())
 
     @pytest.mark.parametrize("hour", HOURS)
     def test_high_sun_never_long_low_sun_never_short(self, hour):

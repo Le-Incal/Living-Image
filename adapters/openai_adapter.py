@@ -8,6 +8,8 @@ with the configured GPT Image 2.5 model (Sunburst or Flare).
 from __future__ import annotations
 
 import base64
+import io
+import math
 import os
 
 import httpx
@@ -54,6 +56,7 @@ class OpenAIAdapter(BaseAdapter):
         image_bytes: bytes,
         prompt: str,
         mime_type: str = "image/png",
+        options: dict | None = None,
     ) -> tuple[bytes, dict]:
         api_key = os.environ.get(ENV_KEY, "")
         if not api_key:
@@ -65,8 +68,8 @@ class OpenAIAdapter(BaseAdapter):
             "images": [{"image_url": f"data:{mime_type};base64,{b64_image}"}],
             "prompt": RELIGHT_ONLY_PREFIX + prompt,
             "n": 1,
-            "size": "auto",
-            "quality": self.entry.options.get("quality", "high"),
+            "size": request_size(image_bytes),
+            "quality": (options or {}).get("quality") or self.entry.options.get("quality", "high"),
             "output_format": "png",
         }
 
@@ -85,6 +88,39 @@ class OpenAIAdapter(BaseAdapter):
             return base64.b64decode(results[0]["b64_json"]), _usage(data.get("usage"))
 
         raise RuntimeError("No image found in OpenAI response")
+
+
+# Custom sizes: both sides divisible by 16, aspect between 1:3 and 3:1, and
+# above 2560x1440 is experimental (OpenAI Images API reference, Nov 2026).
+SIZE_STEP = 16
+MAX_LONG, MAX_SHORT = 2560, 1440
+MIN_PIXELS = 1024 * 1024  # the smallest standard size; an untested floor
+
+
+def request_size(image_bytes: bytes) -> str:
+    """An explicit output size that follows the input's shape, or "auto"."""
+    try:
+        from PIL import Image
+        w, h = Image.open(io.BytesIO(image_bytes)).size
+    except Exception:
+        return "auto"
+    if not w or not h or not (1 / 3 <= w / h <= 3):
+        return "auto"
+    long_side, short_side = max(w, h), min(w, h)
+    scale = min(1.0, MAX_LONG / long_side, MAX_SHORT / short_side)
+    if w * h * scale * scale < MIN_PIXELS:
+        scale = math.sqrt(MIN_PIXELS / (w * h))
+        rw, rh = (math.ceil(w * scale / SIZE_STEP) * SIZE_STEP,
+                  math.ceil(h * scale / SIZE_STEP) * SIZE_STEP)
+    else:
+        rw, rh = (round(w * scale / SIZE_STEP) * SIZE_STEP,
+                  round(h * scale / SIZE_STEP) * SIZE_STEP)
+    while max(rw, rh) > MAX_LONG or min(rw, rh) > MAX_SHORT:
+        if max(rw, rh) > MAX_LONG:
+            rw, rh = (rw - SIZE_STEP, rh) if rw >= rh else (rw, rh - SIZE_STEP)
+        else:
+            rw, rh = (rw - SIZE_STEP, rh) if rw < rh else (rw, rh - SIZE_STEP)
+    return f"{rw}x{rh}"
 
 
 def _openai_entries():

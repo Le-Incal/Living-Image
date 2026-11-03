@@ -55,7 +55,7 @@
     <h2>By model</h2>
     <div class="wrap"><table>
       <thead><tr>
-        <th>Model</th><th>Runs</th><th>Frames</th><th>Failed</th><th>Failure rate</th>
+        <th>Model</th><th>Prompt · quality</th><th>Runs</th><th>Frames</th><th>Failed</th><th>Failure rate</th>
         <th>Mean run</th><th>Median frame</th><th>p95 frame</th><th>Tokens in / out</th><th>True cost / run</th><th>Est. cost / run</th>
       </tr></thead>
       <tbody id="summary"></tbody>
@@ -64,7 +64,7 @@
     <h2>Runs, newest first</h2>
     <div class="wrap"><table>
       <thead><tr>
-        <th>Model</th><th>Original · frame</th><th>Started</th><th>Job</th><th>OK / requested</th>
+        <th>Model</th><th>Prompt · quality</th><th>Output</th><th>Original · frame</th><th>Started</th><th>Job</th><th>OK / requested</th>
         <th>Run time</th><th>Tokens in / out</th><th>True cost</th><th>Est. cost</th><th>Failures</th>
       </tr></thead>
       <tbody id="runs"></tbody>
@@ -135,11 +135,24 @@
       });
   }
 
+  // Runs recorded before prompt variants existed used v2
+  function variantLabel(o) {
+    return (o.prompt_variant || 'v2') + (o.quality ? ' · ' + o.quality : '');
+  }
+
+  function outputSizes(run) {
+    var seen = {};
+    (run.frames || []).forEach(function (f) { if (f.output_wh) seen[f.output_wh] = true; });
+    var list = Object.keys(seen);
+    return list.length ? list.join(', ') : '-';
+  }
+
   function render(summary, runs) {
     var s = document.getElementById('summary'); s.textContent = '';
     summary.forEach(function (row) {
       var tr = document.createElement('tr');
       cell(tr, row.model_name || row.model_id);
+      cell(tr, variantLabel(row));
       cell(tr, row.runs, 'num');
       cell(tr, row.frames_requested, 'num');
       cell(tr, row.frames_failed, row.frames_failed ? 'num bad' : 'num');
@@ -157,6 +170,8 @@
     runs.forEach(function (run) {
       var tr = document.createElement('tr');
       cell(tr, run.model_name || run.model_id);
+      cell(tr, variantLabel(run));
+      cell(tr, outputSizes(run), 'num');
       var tcell = cell(tr, '');
       var box = document.createElement('div'); box.className = 'thumbs';
       box.appendChild(thumb(run.original_url, 'Original · ' + runDate(run.started_at)));

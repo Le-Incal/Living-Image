@@ -8,6 +8,8 @@ The API key is sent in the x-goog-api-key header, never in the URL.
 from __future__ import annotations
 
 import base64
+import io
+import math
 import os
 
 import httpx
@@ -46,6 +48,7 @@ class GeminiAdapter(BaseAdapter):
         image_bytes: bytes,
         prompt: str,
         mime_type: str = "image/png",
+        options: dict | None = None,
     ) -> tuple[bytes, dict]:
         api_key = os.environ.get(ENV_KEY, "")
         if not api_key:
@@ -63,15 +66,20 @@ class GeminiAdapter(BaseAdapter):
                     ]
                 }
             ],
-            "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"],
+                "imageConfig": image_config(image_bytes),
+            },
         }
+        url = f"{API_BASE}/{self.entry.api_model}:generateContent"
+        headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
 
         async with httpx.AsyncClient(timeout=180.0) as client:
-            resp = await client.post(
-                f"{API_BASE}/{self.entry.api_model}:generateContent",
-                json=payload,
-                headers={"Content-Type": "application/json", "x-goog-api-key": api_key},
-            )
+            resp = await client.post(url, json=payload, headers=headers)
+            if resp.status_code == 400 and _rejects_image_config(resp.text):
+                # A model that does not take imageConfig still renders at its default size
+                payload["generationConfig"].pop("imageConfig", None)
+                resp = await client.post(url, json=payload, headers=headers)
             if resp.is_error:
                 raise RuntimeError(f"Gemini {resp.status_code}: {resp.text[:300]}")
             data = resp.json()
@@ -85,6 +93,35 @@ class GeminiAdapter(BaseAdapter):
                 return base64.b64decode(part["inlineData"]["data"]), _usage(data.get("usageMetadata"))
 
         raise RuntimeError("No image found in Gemini response")
+
+
+# Output at 2K to match the OpenAI models' resolution (the default is 1K)
+IMAGE_SIZE = "2K"
+ASPECT_RATIOS = ("1:1", "2:3", "3:2", "3:4", "4:3", "4:5", "5:4", "9:16", "16:9", "21:9")
+
+
+def image_config(image_bytes: bytes) -> dict:
+    """imageConfig at 2K with the supported aspect ratio nearest the input."""
+    cfg = {"imageSize": IMAGE_SIZE}
+    try:
+        from PIL import Image
+        w, h = Image.open(io.BytesIO(image_bytes)).size
+    except Exception:
+        return cfg
+    if not w or not h:
+        return cfg
+
+    def dist(r):
+        a, b = map(int, r.split(":"))
+        return abs(math.log((w / h) / (a / b)))
+
+    cfg["aspectRatio"] = min(ASPECT_RATIOS, key=dist)
+    return cfg
+
+
+def _rejects_image_config(text: str) -> bool:
+    t = text.lower()
+    return any(k in t for k in ("imageconfig", "image_config", "imagesize", "image_size", "aspectratio", "aspect_ratio"))
 
 
 def _by_modality(details) -> dict:
